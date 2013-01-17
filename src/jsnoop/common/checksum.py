@@ -11,12 +11,23 @@ def hexdigest(arg, algorithm='sha512'):
 	algorithm = algorithm.lower()
 	assert algorithm in algorithms
 	try:
-		# Try to open the file and hash it
-		with open(arg, mode='rb') as f:
-			digest = algorithms[algorithm]()
-			for buff in iter(f.read, b''):
-				digest.update(buff)
-	except IOError:
-		# If the file could not be opened, hash the string arg
+		# Try opening the file or assuming that arg is a file-like object
+		f = open(arg, mode='rb') if isinstance(arg, str) else arg
+		digest = algorithms[algorithm]()
+		for buff in iter(f.read, b''):
+			digest.update(buff)
+		if f is arg:
+			# Assume that we processed a file-like object
+			# TODO: Should we seel to previous position?
+			arg.seek(0)
+		else:
+			# If we opened a file, be nice and close it
+			f.close()
+	except (IOError, AttributeError):
+		# If the file could not be opened, try convering the arg into bytes
+		# then hash it
+		inbytes = arg.encode() if type(arg) is str else arg
+		# We can only process bytes
+		assert type(inbytes) is bytes
 		digest = algorithms[algorithm](arg.encode())
 	return digest.hexdigest()

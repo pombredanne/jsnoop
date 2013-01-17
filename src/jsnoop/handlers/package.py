@@ -13,10 +13,9 @@ def known_type(filepath):
 	filetype = splitext(filepath)[-1]
 	return filetype in handled_packages + extra_files
 
-def can_handle(filepath):
+def can_handle(arg):
 	"""Check if the given file is an archive we can handle"""
-	valid = known_type(filepath) and is_archive(filepath)
-	return valid
+	return is_archive(arg)
 
 def get_handler(filepath):
 	"""Helper function to fetch the correct handler based on """
@@ -28,30 +27,32 @@ def get_handler(filepath):
 	else:
 		return File
 
-# TODO: This needs to be parallelized as it is mostly a CPU bound task 
+# TODO: This needs to be parallelized as it is mostly a CPU bound task
 class Package():
-	def __init__(self, filepath, prefix='', parent=None, process_all_files=False):
+	def __init__(self, filepath, fileobj=None, parent=None,
+				process_all_files=False):
 		self.filepath = filepath
+		self.fileobj = fileobj
 		self.process_all_files = process_all_files
-		self.fileinfo = File(filepath, prefix).info()
+		self.fileinfo = File(filepath, fileobj).info()
 		self.fileinfo['parent'] = parent
 		self.children = [self.fileinfo]
 		self.process()
 
 	def process(self):
 		print('Snooping Archive: %s' % self.filepath)
-		self.archive = make(self.filepath)
+		self.archive = make(self.filepath, self.fileobj, True)
 		for info in self.archive.infolist():
 			# Decide if we are processing this or not
 			if not self.archive.is_file(info) or \
 			not (known_type(info.filename) or self.process_all_files):
 				continue
-			extracted_path = self.archive.extract(info)
-			if can_handle(extracted_path):
-				pkg = Package(extracted_path, self.archive.tempdir, self.fileinfo['sha512'])
+			fileobj = self.archive.extract(info)
+			if can_handle(fileobj):
+				pkg = Package(info.filename, fileobj, self.fileinfo['sha512'])
 				self.children += pkg.children
 			else:
-				handler = get_handler(extracted_path)
-				fileinfo = handler(extracted_path, self.archive.tempdir).info()
+				handler = get_handler(info.filename)
+				fileinfo = handler(info.filename, fileobj).info()
 				fileinfo['parent'] = self.fileinfo['sha512']
 				self.children.append(fileinfo)

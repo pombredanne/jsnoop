@@ -5,30 +5,76 @@ import zipfile
 from re import search, compile
 from tempfile import mkdtemp
 from abc import ABCMeta, abstractmethod
+from genericpath import isdir
+from io import BytesIO
 
 native_support_os = ['posix']
 
-# TODO: Add inmemory extraction and manipulation support
+def bytes_to_bio(filebytes):
+	"""Creates a file like BytesIO object from given filebytes."""
+	assert type(filebytes) is bytes
+	return BytesIO(filebytes)
+
+def fileobj_to_bio(fileobj):
+	"""Creates a file like BytesIO object from given file object."""
+	bio = BytesIO(fileobj.read())
+	# Leave things as it were, seek to 0
+	fileobj.seek(0)
+	return bio
+
 class AbstractArchive(metaclass=ABCMeta):
-	def __init__(self, filepath, tempdir, allow_unsafe_extraction):
-		assert os.path.isdir(tempdir)
-		self.__tempdir = tempdir
+	def __init__(self, filepath, inmemory_processing=True,
+				allow_unsafe_extraction=False):
 		self.allow_unsafe_extraction = allow_unsafe_extraction
 		self.filepath = filepath
 		self.filelist = self.generate_filelist()
 		self.check_unsafe()
+		self.tempdir = None
+		self.inmemory = inmemory_processing
 
 	@property
 	def tempdir(self):
-		assert self.__tempdir is not None
-		return self.__tempdir
+		"""Gets the current value of the tempdir property."""
+		if hasattr(self, '__tempdir'):
+			return self.__tempdir
+		else:
+			None
+
+	@tempdir.setter
+	def tempdir(self, value):
+		"""Sets the tempdir location, we expect the directory path to exist. If
+		a previous value existed we remove that directory."""
+		if hasattr(self, 'tempdir') and value != self.tempdir:
+			self.cleanup()
+		assert value is None or isdir(value)
+		self.__tempdir = value
+
+	@tempdir.deleter
+	def tempdir(self):
+		"""Deletes the tempdir property after proper clean up is performed
+		usign the instance's cleanup() method."""
+		self.cleanup()
+		del self.__tempdir
+
+	@property
+	def inmemory(self):
+		"""Gets the inmemory property"""
+		return self.__inmemory
+
+	@inmemory.setter
+	def inmemory(self, value):
+		"""Sets the inmemory property. If we are processing inmemory we make
+		sure all temporary directory stuff is removed and cleaned up, if we are
+		not we create a new temp directory"""
+		self.tempdir = None if value else mkdtemp(prefix="jsnoop_")
+		self.__inmemory = value
 
 	def members(self):
 		"""Returns a list of filenames strings from the archive"""
 		return self.filelist
 
 	def check_unsafe(self):
-		"""If unsafe extractions are not allowed we check filenames in the 
+		"""If unsafe extractions are not allowed we check filenames in the
 		archives to see if any start with '/' or '..'. This identifies absolute
 		and relative paths"""
 		if not self.allow_unsafe_extraction:
@@ -41,15 +87,17 @@ class AbstractArchive(metaclass=ABCMeta):
 	def cleanup(self):
 		"""Cleans up all files in the tempdir and sets the tempdir property
 		to None. All further calls to tempdir will raise an AssertionError."""
-		# We import here to avoid the risk of python cleaning up rmtree
-		# before an instance of this class is deleted. (__del__)
-		from shutil import rmtree
-		rmtree(self.tempdir)
-		self.__tempdir = None
+		if self.tempdir is not None:
+			# We import here to avoid the risk of python cleaning up rmtree
+			# before an instance of this class is deleted. (__del__)
+			from shutil import rmtree
+			rmtree(self.tempdir)
+			self.tempdir = None
+
 
 	def __del__(self):
 		# Clean up after yourself.
-		self.cleanup()
+		pass
 
 	@staticmethod
 	def is_native():
@@ -62,14 +110,17 @@ class AbstractArchive(metaclass=ABCMeta):
 
 	@abstractmethod
 	def extract(self, member):
-		"""Extracts a member (identified by filename_from_info) from the archive and 
-		returns its absolute path"""
+		"""Extracts a member (identified by filename_from_info) from the archive
+		and returns its absolute path if inmemory is disabled else returns a
+		file-like object."""
 		return NotImplemented
 
 	@abstractmethod
 	def extract_all(self):
-		"""Extracts all files in the archive and returns the absolute path
-		of the temporary directory"""
+		"""Extracts all files in the archive and returns a dictionary mapping
+		member.filename to absolute path on disk (if inmemory is False) or
+		file-like object (if inmemory is True).
+		"""
 		return NotImplemented
 
 	@abstractmethod
@@ -99,10 +150,18 @@ class AbstractArchive(metaclass=ABCMeta):
 		return info.filename
 
 class ZipFile(AbstractArchive):
-	def __init__(self, filepath, tempdir, allow_unsafe_extraction=False):
-		assert zipfile.is_zipfile(filepath)
-		self.archive = zipfile.ZipFile(filepath)
-		AbstractArchive.__init__(self, filepath, tempdir,
+	def __init__(self, filepath, fileobj=None, inmemory_processing=True,
+				allow_unsafe_extraction=False):
+		# The ZipFile constructor cannot handle file objects other than
+		# BytesIO for some reason. So enforcing it.
+		if fileobj and not isinstance(fileobj, BytesIO):
+			fileobj = fileobj_to_bio(fileobj)
+		input = fileobj if fileobj else filepath
+		assert zipfile.is_zipfile(input)
+		self.archive = zipfile.ZipFile(input)
+		if fileobj:
+			fileobj.seek(0)
+		AbstractArchive.__init__(self, filepath, inmemory_processing,
 								allow_unsafe_extraction)
 
 	def generate_filelist(self):
@@ -112,15 +171,45 @@ class ZipFile(AbstractArchive):
 		return self.archive.infolist()
 
 	def extract(self, member):
-		return self.archive.extract(member, self.tempdir)
+		"""Extract a given member (ZipInfo Object or Filename).
+
+		If inmemory mode is enabled we return file-like object derrived from the
+		bytes returned by ZipFile.read() method. (Converted using
+		archives.bytes_to_io method.).
+
+		Else, we return the the path of the extracted file on disk.
+		"""
+		if self.inmemory:
+			# We use custom BytesIO obj as the zipfile.ZipExtFile cannot be
+			# trusted to work with zipfile.ZipFile()
+			# zipfile.ZipExtFile also has issues when the ZipFile was opened
+			# using a file-like object.
+			return bytes_to_bio(self.archive.read(member))
+		else:
+			return self.archive.extract(member, self.tempdir)
 
 	def extract_all(self):
-		self.archive.extractall(self.tempdir)
-		return self.tempdir
+		"""Performs extaction of all files in the current Zip Archive.
+		If inmemory mode is enabled we return a dictionary where key is the
+		filename and value is a file-like object returned by extract() method.
+
+		Else if inmemory mode is not enabled, we return a dict with the member
+		name as key and the extracted location of the file on disk as value.
+		"""
+		files = {}
+		if self.inmemory:
+			for member in self.infolist():
+				files[member.filename] = self.extract(member)
+		else:
+			self.archive.extractall(self.tempdir)
+			for member in self.filelist:
+				files[member.filename] = os.path.join(self.tempdir,
+													member.filename)
+		return files
 
 	@staticmethod
 	def is_link(info):
-		"""This method overrides the implementation in the abstract class 
+		"""This method overrides the implementation in the abstract class
 		@AbstractArchive as the @zipfile.ZipInfo object does not have a issym()
 		method."""
 		assert type(info) is zipfile.ZipInfo
@@ -131,7 +220,7 @@ class ZipFile(AbstractArchive):
 
 	@staticmethod
 	def is_dir(info):
-		"""This method overrides the implementation in the abstract class 
+		"""This method overrides the implementation in the abstract class
 		@AbstractArchive as the @zipfile.ZipInfo object does not have a isdir()
 		method."""
 		assert type(info) is zipfile.ZipInfo
@@ -139,23 +228,54 @@ class ZipFile(AbstractArchive):
 
 
 class TarFile(AbstractArchive):
-	def __init__(self, filepath, tempdir, allow_unsafe_extraction=False):
-		assert tarfile.is_tarfile(filepath)
-		self.archive = tarfile.TarFile(filepath)
-		AbstractArchive.__init__(self, filepath, tempdir,
+	def __init__(self, filepath, fileobj=None, inmemory_processing=True,
+				allow_unsafe_extraction=False):
+		# Risky business, we do not check if this is a valid tarfile
+		# we watch it fail and burn. We do this as we have no reliable check
+		# handling both bytes/name case liek in zipfile.
+		if fileobj:
+			self.archive = tarfile.TarFile(fileobj=fileobj)
+		else:
+			self.archive = tarfile.TarFile(name=filepath)
+		AbstractArchive.__init__(self, filepath, inmemory_processing,
 								allow_unsafe_extraction)
 
 	def generate_filelist(self):
 		return self.archive.getnames()
 
 	def extract(self, member):
-		self.archive.extract(member, self.tempdir)
-		filepath = member.name if type(member) is tarfile.TarInfo else member
-		return os.path.join(self.tempdir, filepath)
+		"""Extract a given member (TarInfo Object or Filename).
+
+		If inmemory mode is enabled we return file-like object derrived from the
+		bytes returned by TarFile.extractfile() method.
+
+		Else, we return the the path of the extracted file on disk.
+		"""
+		if self.inmemory:
+			return self.archive.extractfile(member)
+		else:
+			self.archive.extract(member, self.tempdir)
+			filepath = member.name if type(member) is tarfile.TarInfo else member
+			return os.path.join(self.tempdir, filepath)
 
 	def extract_all(self):
-		self.archive.extractall(self.tempdir)
-		return self.tempdir
+		"""Performs extaction of all files in the current Zip Archive.
+		If inmemory mode is enabled we return a dictionary where key is the
+		filename and value is a file-like object returned by extract() method.
+
+		Else if inmemory mode is not enabled, we return a dict with the member
+		name as key and the extracted location of the file on disk as value.
+		"""
+		files = {}
+		if self.inmemory:
+			for member in self.infolist():
+				files[member.filename] = self.extract(member)
+		else:
+			self.archive.extractall(self.tempdir)
+			for member in self.filelist:
+				files[member.filename] = os.path.join(self.tempdir,
+													member.filename)
+		return files
 
 	def infolist(self):
 		return self.archive.getmembers()
@@ -171,25 +291,42 @@ class AbstractNativeArchive(AbstractArchive):
 		return True
 
 class NativeTarFile(AbstractNativeArchive):
-	def __init__(self, filepath, tempdir, allow_unsafe_extraction=False):
+	def __init__(self, filepath, fileobj=None, inmemory_processing=False,
+				allow_unsafe_extraction=False):
+		# Native archives cannot support inmemory mode
+		self.inmemory_processing = False
+		self.path = filepath
+		if fileobj:
+			temp_path = os.path.join(mkdtemp(prefix='nativetar-'), filepath)
+			os.makedirs(os.path.dirname(temp_path))
+			with open(temp_path, 'wb') as f:
+				f.write(fileobj.read())
+				fileobj.seek(0)
+			self.path = temp_path
 		assert os.name in native_support_os
-		AbstractArchive.__init__(self, filepath, tempdir,
+		AbstractArchive.__init__(self, filepath, inmemory_processing,
 								allow_unsafe_extraction)
+
+	def __del__(self):
+		from shutil import rmtree
+		path = self.path.replace(self.filepath)
+		if os.path.exists(path):
+			rmtree(path)
 
 	@property
 	def extract_cmd(self):
-		return ['tar', '-C', self.tempdir, '-xf', self.filepath]
+		return ['tar', '-C', self.tempdir, '-xf', self.path]
 
 	def prepare_info(self):
-		"""This method prepares additional information including file 
-		permissions, link information etc for later use. Here we make use of 
+		"""This method prepares additional information including file
+		permissions, link information etc for later use. Here we make use of
 		the output provided by the command tar -tvf. The additional information
 		is stored in __infolist as NativeInfo objects"""
 		# We expect the format:
 		# permissions owner/group size date time filename_from_info
 		regex = compile('([dlrwx-]*) [ ]*([a-zA-Z0-9/]*) [ ]*([0-9]*) ' +
 					'[ ]*([0-9-]*) [ ]*([0-9:]*) [ ]*(.*)')
-		cmd = ['tar', '-tvf', self.filepath]
+		cmd = ['tar', '-tvf', self.path]
 		output = subprocess.check_output(cmd)
 		self.__infolist = []
 		filelist = []
@@ -213,7 +350,7 @@ class NativeTarFile(AbstractNativeArchive):
 		return self.prepare_info()
 
 	def generate_simple_filelist(self):
-		cmd = ['tar', '-tf', self.filepath]
+		cmd = ['tar', '-tf', self.path]
 		files = subprocess.check_output(cmd)
 		return [ f.strip() for f in files.decode().strip().split('\n') ]
 
@@ -255,26 +392,41 @@ class NativeInfo():
 	def isdir(self):
 		return self.permissions.startswith('d')
 
-def make(filepath, allow_unsafe_extraction=False):
+def make(filepath, fileobj=None, inmemory_processing=True, allow_unsafe_extraction=False):
 	"""This method allows for smart opening of an archive file. Currently this
 	method can handle tar and zip archives. For the tar files, if the python
-	library has issues, the file is attempted to be processed by using the 
+	library has issues, the file is attempted to be processed by using the
 	tar command. (Note: the native classes are implemented to work only on
 	posix machines)"""
-	assert os.path.isfile(filepath)
-	tempdir = mkdtemp()
+	if not fileobj:
+		assert os.path.isfile(filepath)
+		test_arg = filepath
+	else:
+		test_arg = fileobj
 	obj = None
-	if zipfile.is_zipfile(filepath):
-		obj = ZipFile(filepath, tempdir, allow_unsafe_extraction)
-	elif tarfile.is_tarfile(filepath):
+	if zipfile.is_zipfile(test_arg):
+		obj = ZipFile(filepath, fileobj, inmemory_processing,
+					allow_unsafe_extraction)
+	elif is_tarfile(test_arg):
 		try:
-			obj = TarFile(filepath, tempdir, allow_unsafe_extraction)
+			obj = TarFile(filepath, fileobj, inmemory_processing,
+					allow_unsafe_extraction)
 		except:
-			obj = NativeTarFile(filepath, tempdir, allow_unsafe_extraction)
+			obj = NativeTarFile(filepath, fileobj, inmemory_processing,
+								allow_unsafe_extraction)
 	else:
 		raise Exception("Unknown Archive Type: " +
 					"You should really just give me something I can digest!")
 	return obj
 
-def is_archive(filepath):
-	return (zipfile.is_zipfile(filepath) or tarfile.is_tarfile(filepath))
+def is_tarfile(arg):
+	if isinstance(arg, str):
+		# Process filepaths
+		tarfile.is_tarfile(arg)
+	elif hasattr(arg, 'name'):
+		return os.path.splitext(arg.name)[-1] in ['tar', 'gz', 'bz', 'bz2']
+	return False
+
+def is_archive(arg):
+	return zipfile.is_zipfile(arg) or is_tarfile(arg)
+
