@@ -59,7 +59,6 @@ class LocalDatabase():
 		return self.__db['updated']
 
 	def __load(self):
-		print('loading', self.cache, isfile(self.cache))
 		if self.cache and isfile(self.cache):
 			with open(self.cache, "rb") as f:
 				self.__db = pickle.load(f)
@@ -116,8 +115,10 @@ class LocalDatabase():
 		"""
 		Gets a list of cves if the given hash matches any entry in the database.
 		"""
+		result = []
 		if sha512 in self.entries:
-			return self.entries[sha512]['cves']
+			result = self.entries[sha512]['cves']
+		return result
 
 	def match_file_set(self, hashes):
 		"""
