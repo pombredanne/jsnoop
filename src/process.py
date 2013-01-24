@@ -1,22 +1,37 @@
 #! /usr/bin/env python3
 
 import sys
-from os.path import exists, basename
+from os.path import exists, basename, join
 from jsnoop.handlers.package import Package
-
+from jsnoop.plugins.victims import LocalDatabase
 """ This is an example script that takes as input an archive file, snoops it
-and writes the results to an output text file. No fancy stuff is done to the 
+and writes the results to an output text file. No fancy stuff is done to the
 output, all info is output as a string(dictionary)."""
 
 output_ext = 'manifest'
 
-def process(filepath, process_all_files=False):
-	pkg = Package(filepath, process_all_files=process_all_files)
+def write_to_file(pkg):
 	output_file = '%s.%s' % (basename(filepath), output_ext)
-	output = open(output_file, 'w')
-	for child in pkg.children:
-		output.write(str(child) + '\n')
+	with open(output_file, 'w') as output:
+		for child in pkg.children:
+			output.write(str(child) + '\n')
 	print('Manifest written to %s' % output_file)
+
+def scan_victims(pkg):
+	print('Scaning for victims...')
+	vdb = LocalDatabase()
+	for child in pkg.children:
+		if child['type'] == '.jar':
+			matches = vdb.match_archive(child['sha512'])
+			if len(matches) > 0:
+				print('Victim-Match: ', join(child['path'], child['name']),
+					' matched ', ','.join(matches))
+
+def process(filepath, process_all_files=False):
+	print('Snooping file...')
+	pkg = Package(filepath, process_all_files=process_all_files)
+	scan_victims(pkg)
+	write_to_file(pkg)
 
 if __name__ == '__main__':
 	if not len(sys.argv) == 2:
