@@ -3,10 +3,11 @@ from jsnoop.common.archives import is_archive, make
 from jsnoop.handlers.file import File
 from jsnoop.handlers.manifest import ManifestFile
 from jsnoop.handlers.signature import SignatureFile
+from jsnoop.handlers.javaclass import ClassFile
 
 # TODO: Find a better home for the initial bites minus the Package class
 handled_packages = ['.zip', '.gz', '.bz2', '.tar', '.jar', '.sar', '.war']
-extra_files = ['.MF', '.RSA', '.DSA']
+extra_files = ['.MF', '.RSA', '.DSA', '.class']
 
 def known_type(filepath):
 	"""Check if a given file type is known to us"""
@@ -24,6 +25,8 @@ def get_handler(filepath):
 		return ManifestFile
 	elif filetype in ['.RSA', '.DSA']:
 		return SignatureFile
+	elif filetype in ['.class']:
+		return ClassFile
 	else:
 		return File
 
