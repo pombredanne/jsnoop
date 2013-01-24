@@ -1,4 +1,4 @@
-from subprocess import getstatusoutput, check_output, CalledProcessError
+from subprocess import getstatusoutput
 from jsnoop.handlers.file import AbstractFile
 
 handled_signers = ['.rsa', '.dsa']
