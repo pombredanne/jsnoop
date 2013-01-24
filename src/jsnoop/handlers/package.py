@@ -43,7 +43,6 @@ class Package():
 		self.process()
 
 	def process(self):
-		print('Snooping Archive: %s' % self.filepath)
 		self.archive = make(self.filepath, self.fileobj, True)
 		for info in self.archive.infolist():
 			# Decide if we are processing this or not
