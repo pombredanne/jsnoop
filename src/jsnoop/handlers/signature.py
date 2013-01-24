@@ -1,4 +1,4 @@
-from subprocess import check_output, CalledProcessError
+from subprocess import getstatusoutput, check_output, CalledProcessError
 from jsnoop.handlers.file import AbstractFile
 
 handled_signers = ['.rsa', '.dsa']
@@ -7,13 +7,15 @@ def decode_signer(filepath):
 	"""Decodes the signer from the file at filepath"""
 	# TODO: Figure out a pythonic way of doing this efficiently and to handle
 	# inmemory stuff
-	try:
-		cmd = 'openssl pkcs7 -inform DER -in ' + filepath + ' -noout -print_certs -text'
-		return check_output(cmd, shell=True)
-	except CalledProcessError:
-		# TODO: This is a hack we need a better way of dealing with this
-		cmd = 'openssl x509 -in ' + filepath + ' -noout -text'
-		return check_output(cmd, shell=True)
+	commands = [
+			'openssl pkcs7 -inform DER -in %s -noout -print_certs -text',
+			'openssl x509 -in %s -noout -text'
+			]
+	for cmd in commands:
+		(status, output) = getstatusoutput(cmd % (filepath))
+		if status == 0:
+			break
+	return output
 
 class SignatureFile(AbstractFile):
 	def __init__(self, filepath, fileobj=None, parent_path=''):
