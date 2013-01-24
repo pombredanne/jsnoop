@@ -1,4 +1,4 @@
-from jsnoop.handlers.file import AbstractFile
+from jsnoop.handlers import AbstractFile
 
 class ManifestFile(AbstractFile):
 	def __init__(self, filepath, fileobj=None, parent_path=''):

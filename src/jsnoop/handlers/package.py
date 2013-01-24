@@ -1,6 +1,6 @@
 from os.path import splitext
 from jsnoop.common.archives import is_archive, make
-from jsnoop.handlers.file import File
+from jsnoop.handlers.simplefile import SimpleFile
 from jsnoop.handlers.manifest import ManifestFile
 from jsnoop.handlers.signature import SignatureFile
 from jsnoop.handlers.javaclass import ClassFile
@@ -28,7 +28,7 @@ def get_handler(filepath):
 	elif filetype in ['.class']:
 		return ClassFile
 	else:
-		return File
+		return SimpleFile
 
 # TODO: This needs to be parallelized as it is mostly a CPU bound task
 class Package():
@@ -37,7 +37,7 @@ class Package():
 		self.filepath = filepath
 		self.fileobj = fileobj
 		self.process_all_files = process_all_files
-		self.fileinfo = File(filepath, fileobj).info()
+		self.fileinfo = SimpleFile(filepath, fileobj).info()
 		self.fileinfo['parent'] = parent
 		self.children = [self.fileinfo]
 		self.process()

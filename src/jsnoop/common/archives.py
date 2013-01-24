@@ -156,9 +156,9 @@ class ZipFile(AbstractArchive):
 		# BytesIO for some reason. So enforcing it.
 		if fileobj and not isinstance(fileobj, BytesIO):
 			fileobj = fileobj_to_bio(fileobj)
-		input = fileobj if fileobj else filepath
-		assert zipfile.is_zipfile(input)
-		self.archive = zipfile.ZipFile(input)
+		arg = fileobj if fileobj else filepath
+		assert zipfile.is_zipfile(arg)
+		self.archive = zipfile.ZipFile(arg)
 		if fileobj:
 			fileobj.seek(0)
 		AbstractArchive.__init__(self, filepath, inmemory_processing,

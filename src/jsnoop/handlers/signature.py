@@ -1,5 +1,5 @@
 from subprocess import getstatusoutput
-from jsnoop.handlers.file import AbstractFile
+from jsnoop.handlers import AbstractFile
 
 handled_signers = ['.rsa', '.dsa']
 
