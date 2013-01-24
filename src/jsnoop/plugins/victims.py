@@ -63,13 +63,11 @@ class LocalDatabase():
 		if self.cache and isfile(self.cache):
 			with open(self.cache, "rb") as f:
 				self.__db = pickle.load(f)
-				print('Loading: ', self.last_updated, len(self.entries))
 
 	def __store(self):
 		if self.cache:
 			with open(self.cache, "wb") as f:
 				pickle.dump(self.__db, f, pickle.HIGHEST_PROTOCOL)
-				print('Stored: ', self.last_updated, len(self.entries))
 
 	def update(self):
 		"""
