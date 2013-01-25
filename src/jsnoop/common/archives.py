@@ -428,5 +428,10 @@ def is_tarfile(arg):
 	return False
 
 def is_archive(arg):
-	return zipfile.is_zipfile(arg) or is_tarfile(arg)
+	last_position = arg.tell() if hasattr(arg, 'tell') else 0
+	result = zipfile.is_zipfile(arg) or is_tarfile(arg)
+	if not isinstance(arg, str):
+		# Safety first since we handle file objects
+		arg.seek(last_position)
+	return result
 
