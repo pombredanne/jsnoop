@@ -24,8 +24,10 @@ def scan_victims(pkg):
 		if child['type'] == '.jar':
 			matches = vdb.match_archive(child['sha512'])
 			if len(matches) > 0:
-				print('Victim-Match: ', join(child['path'], child['name']),
-					' matched ', ','.join(matches))
+				cve_str = ','.join(matches)
+				filename = join(child['path'], child['name'])
+				print('Victim-Match : %s\n%s\n' % (cve_str,
+                                        filename))
 
 def process(filepath, process_all_files=False):
 	print('Snooping file...')
