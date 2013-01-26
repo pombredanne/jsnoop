@@ -1,10 +1,10 @@
 import json
 import pickle
 from urllib.request import urlopen
-from datetime import datetime
+from datetime import datetime, MINYEAR
 from os.path import isfile
 
-VICTIMS_URI = 'http://victi.ms'
+VICTIMS_URI = 'http://localhost:5000'
 TIMEOUT = 1
 VICTIMS_CACHE = 'victims.cache'
 DATE_FRMT = '%Y-%m-%dT%H:%M:%S'
@@ -34,7 +34,8 @@ class LocalDatabase():
 	those information we need.
 	"""
 	def __init__(self, server=VICTIMS_URI, cache=VICTIMS_CACHE, no_cache=False):
-		timestamp = datetime(1, 1, 1).strftime('000' + DATE_FRMT)
+		timestamp = datetime(MINYEAR, 1, 1).strftime(
+									'000' if MINYEAR == 1 else '' + DATE_FRMT)
 		self.__db = {'updated': timestamp, 'entries': []}
 		self.cache = None if no_cache else cache
 		self.server = server
