@@ -5,7 +5,6 @@ import zipfile
 from re import search, compile
 from tempfile import mkdtemp
 from abc import ABCMeta, abstractmethod
-from genericpath import isdir
 from io import BytesIO
 
 native_support_os = ['posix']
@@ -61,7 +60,7 @@ class AbstractArchive(metaclass=ABCMeta):
 			# Oops cleanup failed, might as well continue.
 			# TODO: Better clean up?
 			pass
-		assert value is None or isdir(value)
+		assert value is None or os.path.isdir(value)
 		self.__tempdir = value
 
 	@tempdir.deleter
