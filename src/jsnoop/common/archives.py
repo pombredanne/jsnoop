@@ -369,7 +369,7 @@ class NativeTarFile(AbstractNativeArchive):
 				owner, group = match.group(2).split('/')
 				filesize = int(match.group(3))
 				self.__infolist.append(NativeInfo(filename, permissions,
-												owner, group, filesize, linkto))
+								owner, group, filesize, linkto))
 				filelist.append(filename)
 		return filelist
 
