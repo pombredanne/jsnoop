@@ -6,6 +6,83 @@ from tempfile import mkdtemp
 
 required_checksums = ['md5', 'sha1', 'sha256', 'sha512']
 
+def import_module(fqn):
+	"""Helper method for dynamic import of modules based on full qualified name.
+	Eg: fqn = 'jsnoop.handlers.manifest'
+	"""
+	mod = __import__(fqn)
+	for comp in fqn.split('.')[1:]:
+		mod = getattr(mod, comp)
+	return mod
+
+# Module prefix to make things cleaner
+module_prefix = 'jsnoop.handlers'
+
+# Default fall back handler
+default_module = 'simplefile'
+
+# Mapping between module names and containted handler classes
+classes = {
+		'archivefile'	: 'ArchiveFile',
+		'javaclass'		: 'ClassFile',
+		'manifest'		: 'ManifestFile',
+		'signature'		: 'SignatureFile',
+		'simplefile'	: 'SimpleFile'
+	}
+
+# Mapping of file extensions and handler modules
+modules = {
+		'.mf'	: 'manifest',
+		'.rsa'	: 'signature',
+		'.dsa'	: 'signature',
+		'.class': 'javaclass',
+		'.zip'	: 'archivefile',
+		'.gz'	: 'archivefile',
+		'.bz2'	: 'archivefile',
+		'.tar'	: 'archivefile',
+		'.jar'	: 'archivefile',
+		'.war'	: 'archivefile',
+		'.sar'	: 'archivefile',
+		'.war'	: 'archivefile'
+	}
+
+loaded = {}
+
+def __handler_class(module):
+	"""Internal method to assist in loading the correct class giving a module's
+	basename. A call to this method returns the class if its already loaded else
+	loads it, marks it as loaded then returns it.
+
+	Do not use this method unless you know what you are doing."""
+	klass = classes.get(module)
+	module = '%s.%s' % (module_prefix, module)
+	fqn = '%s.%s' % (module, klass)
+	if fqn not in loaded:
+		loaded[fqn] = getattr(import_module(module), klass)
+	return loaded[fqn]
+
+def get_handler(filename):
+	"""Method to get the correct handler class based on file's extension."""
+	try:
+		extension = splitext(filename)[-1]
+		module = modules.get(extension.lower(), default_module)
+	except:
+		module = default_module
+	return __handler_class(module)
+
+def get_handler_obj(filepath, fileobj=None, parent_path='', parent_sha512=None):
+	"""Method to create an instance of the correct handler class based on
+	filepath. We first would try to unpack it using brute force, if not possible
+	find the next best handler by extracting the file extension."""
+	try:
+		# force try handling as an archive (we want to go as deep as possible)
+		handler = __handler_class('archivefile')(filepath, fileobj,
+												parent_path, parent_sha512)
+	except ValueError:
+		handler = get_handler(filepath)
+		handler = handler(filepath, fileobj, parent_path, parent_sha512)
+	return handler
+
 class AbstractFile(metaclass=ABCMeta):
 	def __init__(self, filepath, fileobj=None, parent_path='',
 				parent_sha512=None):
