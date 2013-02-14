@@ -78,7 +78,7 @@ def get_handler_obj(filepath, fileobj=None, parent_path='', parent_sha512=None):
 	try:
 		# force try handling as an archive (we want to go as deep as possible)
 		handler = __handler_class('archivefile')(filepath, fileobj,
-												parent_path, parent_sha512)
+							parent_path, parent_sha512)
 	except ValueError:
 		handler = get_handler(filepath)
 		handler = handler(filepath, fileobj, parent_path, parent_sha512)
