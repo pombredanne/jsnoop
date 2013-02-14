@@ -23,28 +23,28 @@ default_module = 'simplefile'
 
 # Mapping between module names and containted handler classes
 classes = {
-		'archivefile'	: 'ArchiveFile',
-		'javaclass'		: 'ClassFile',
-		'manifest'		: 'ManifestFile',
-		'signature'		: 'SignatureFile',
-		'simplefile'	: 'SimpleFile'
-	}
+	'archivefile'	: 'ArchiveFile',
+	'javaclass'	: 'ClassFile',
+	'manifest'	: 'ManifestFile',
+	'signature'	: 'SignatureFile',
+	'simplefile'	: 'SimpleFile'
+}
 
 # Mapping of file extensions and handler modules
 modules = {
-		'.mf'	: 'manifest',
-		'.rsa'	: 'signature',
-		'.dsa'	: 'signature',
-		'.class': 'javaclass',
-		'.zip'	: 'archivefile',
-		'.gz'	: 'archivefile',
-		'.bz2'	: 'archivefile',
-		'.tar'	: 'archivefile',
-		'.jar'	: 'archivefile',
-		'.war'	: 'archivefile',
-		'.sar'	: 'archivefile',
-		'.war'	: 'archivefile'
-	}
+	'.mf'	: 'manifest',
+	'.rsa'	: 'signature',
+	'.dsa'	: 'signature',
+	'.class': 'javaclass',
+	'.zip'	: 'archivefile',
+	'.gz'	: 'archivefile',
+	'.bz2'	: 'archivefile',
+	'.tar'	: 'archivefile',
+	'.jar'	: 'archivefile',
+	'.war'	: 'archivefile',
+	'.sar'	: 'archivefile',
+	'.war'	: 'archivefile'
+}
 
 loaded = {}
 
