@@ -2,7 +2,7 @@
 
 import sys
 from os.path import exists, basename, join
-from jsnoop.handlers.package import Package
+from jsnoop.package import Package
 from jsnoop.plugins.victims import LocalDatabase
 """ This is an example script that takes as input an archive file, snoops it
 and writes the results to an output text file. No fancy stuff is done to the
