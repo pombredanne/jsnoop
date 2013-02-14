@@ -3,7 +3,8 @@ from os.path import join
 from jsnoop.handlers import AbstractFile
 
 class ClassFile(AbstractFile):
-	def __init__(self, filepath, fileobj=None, parent_path=''):
+	def __init__(self, filepath, fileobj=None, parent_path='',
+				parent_sha512=None):
 		if not fileobj:
 			path = join(parent_path, filepath)
 			fileobj = open(path, 'rb')
@@ -11,7 +12,8 @@ class ClassFile(AbstractFile):
 		# Skip java compiler version.
 		self.magic = read_magic(fileobj)
 		self.version = read_version(fileobj)
-		AbstractFile.__init__(self, filepath, fileobj, parent_path)
+		AbstractFile.__init__(self, filepath, fileobj, parent_path,
+							parent_sha512)
 
 	@property
 	def inmemory(self):

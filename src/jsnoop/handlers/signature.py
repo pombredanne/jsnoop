@@ -18,8 +18,10 @@ def decode_signer(filepath):
 	return output
 
 class SignatureFile(AbstractFile):
-	def __init__(self, filepath, fileobj=None, parent_path=''):
-		AbstractFile.__init__(self, filepath, fileobj, parent_path)
+	def __init__(self, filepath, fileobj=None, parent_path='',
+				parent_sha512=None):
+		AbstractFile.__init__(self, filepath, fileobj, parent_path,
+							parent_sha512)
 		assert self.type in handled_signers
 		self.signature = decode_signer(self.filepath)
 

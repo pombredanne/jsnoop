@@ -7,12 +7,14 @@ from tempfile import mkdtemp
 required_checksums = ['md5', 'sha1', 'sha256', 'sha512']
 
 class AbstractFile(metaclass=ABCMeta):
-	def __init__(self, filepath, fileobj=None, parent_path=''):
+	def __init__(self, filepath, fileobj=None, parent_path='',
+				parent_sha512=None):
 		self.filepath = filepath
 		self.fileobj = fileobj
 		self.path = dirname(filepath.replace(parent_path, '').lstrip(sep))
 		self.name = basename(filepath)
 		self.type = splitext(filepath)[-1].lower()
+		self.parent = parent_sha512
 		self.persist()
 		# Use filebytes given, as this maybe in memory processing
 		self.prepare_checksums()
@@ -47,9 +49,12 @@ class AbstractFile(metaclass=ABCMeta):
 			self.__ondisk = temp_file
 
 	def __del__(self):
-		if self.__ondisk:
-			from shutil import rmtree
-			rmtree(self.__ondisk.replace(self.__filepath, ''))
+		try:
+			if self.__ondisk:
+				from shutil import rmtree
+				rmtree(self.__ondisk.replace(self.__filepath, ''))
+		except:
+			pass
 
 	def prepare_checksums(self):
 		if not self.fileobj:
@@ -67,6 +72,8 @@ class AbstractFile(metaclass=ABCMeta):
 		fileinfo['path'] = self.path
 		fileinfo['name'] = self.name
 		fileinfo['type'] = self.type
+		fileinfo['parent'] = self.parent
+		fileinfo['handler'] = self.__class__.__name__
 		for key in self.checksums:
 			fileinfo[key] = self.checksums[key]
 		return fileinfo

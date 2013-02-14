@@ -1,8 +1,10 @@
 from jsnoop.handlers import AbstractFile
 
 class ManifestFile(AbstractFile):
-	def __init__(self, filepath, fileobj=None, parent_path=''):
-		AbstractFile.__init__(self, filepath, fileobj, parent_path)
+	def __init__(self, filepath, fileobj=None, parent_path='',
+				parent_sha512=None):
+		AbstractFile.__init__(self, filepath, fileobj, parent_path,
+							parent_sha512)
 		self.manifestinfo = {}
 		self.parse()
 

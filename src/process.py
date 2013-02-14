@@ -13,14 +13,14 @@ output_ext = 'manifest'
 def write_to_file(pkg):
 	output_file = '%s.%s' % (basename(filepath), output_ext)
 	with open(output_file, 'w') as output:
-		for child in pkg.children:
+		for child in pkg.info:
 			output.write(str(child) + '\n')
 	print('Manifest written to %s' % output_file)
 
 def scan_victims(pkg):
 	print('Scaning for victims...')
 	vdb = LocalDatabase()
-	for child in pkg.children:
+	for child in pkg.info:
 		if child['type'] == '.jar':
 			matches = vdb.match_archive(child['sha512'])
 			if len(matches) > 0:

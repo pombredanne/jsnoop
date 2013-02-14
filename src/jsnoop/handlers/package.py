@@ -1,9 +1,10 @@
 from os.path import splitext
-from jsnoop.common.archives import is_archive, make
+from jsnoop.common.archives import is_archive
 from jsnoop.handlers.simplefile import SimpleFile
 from jsnoop.handlers.manifest import ManifestFile
 from jsnoop.handlers.signature import SignatureFile
 from jsnoop.handlers.javaclass import ClassFile
+from jsnoop.handlers.archivefile import ArchiveFile
 
 # TODO: Find a better home for the initial bites minus the Package class
 handled_packages = ['.zip', '.gz', '.bz2', '.tar', '.jar', '.sar', '.war']
@@ -30,31 +31,32 @@ def get_handler(filepath):
 	else:
 		return SimpleFile
 
+def get_handler_obj(filepath, fileobj=None, parent_path='', parent_sha512=None):
+	# Try to process as an archive
+	handler = None
+	try:
+		handler = ArchiveFile(filepath, fileobj, parent_path, parent_sha512)
+	except ValueError:
+		handler = get_handler(filepath)
+		handler = handler(filepath, fileobj, parent_path, parent_sha512)
+	return handler
+
 # TODO: This needs to be parallelized as it is mostly a CPU bound task
 class Package():
-	def __init__(self, filepath, fileobj=None, parent=None,
-				process_all_files=False):
-		self.filepath = filepath
-		self.fileobj = fileobj
+	def __init__(self, filepath, fileobj=None, parent_path='',
+				parent_sha512=None, process_all_files=False):
+		self.handler = get_handler_obj(filepath, fileobj, parent_path,
+									parent_sha512)
+		self.info = [self.handler.info()]
 		self.process_all_files = process_all_files
-		self.fileinfo = SimpleFile(filepath, fileobj).info()
-		self.fileinfo['parent'] = parent
-		self.children = [self.fileinfo]
 		self.process()
 
 	def process(self):
-		self.archive = make(self.filepath, self.fileobj, True)
-		for info in self.archive.infolist():
-			# Decide if we are processing this or not
-			if not self.archive.is_file(info) or \
-			not (known_type(info.filename) or self.process_all_files):
-				continue
-			fileobj = self.archive.extract(info)
-			if can_handle(fileobj):
-				pkg = Package(info.filename, fileobj, self.fileinfo['sha512'])
-				self.children += pkg.children
-			else:
-				handler = get_handler(info.filename)
-				fileinfo = handler(info.filename, fileobj).info()
-				fileinfo['parent'] = self.fileinfo['sha512']
-				self.children.append(fileinfo)
+		if isinstance(self.handler, ArchiveFile):
+			for child in self.handler.get_child_objects():
+				pkg = Package(child.filename, child.fileobj, child.parent_path,
+							child.parent_sha512)
+				self.info += pkg.info
+
+
+
