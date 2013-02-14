@@ -31,6 +31,7 @@ classes = {
 }
 
 # Mapping of file extensions and handler modules
+# File extensions are to be in lovercase with preceding '.' intact
 modules = {
 	'.mf'	: 'manifest',
 	'.rsa'	: 'signature',
