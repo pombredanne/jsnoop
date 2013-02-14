@@ -46,7 +46,8 @@ modules = {
 	'.war'	: 'archivefile'
 }
 
-loaded = {}
+# Dictionary to cache loaded clases, saves work for repeated loads
+__loaded = {}
 
 def __handler_class(module):
 	"""Internal method to assist in loading the correct class giving a module's
@@ -57,9 +58,9 @@ def __handler_class(module):
 	klass = classes.get(module)
 	module = '%s.%s' % (module_prefix, module)
 	fqn = '%s.%s' % (module, klass)
-	if fqn not in loaded:
-		loaded[fqn] = getattr(import_module(module), klass)
-	return loaded[fqn]
+	if fqn not in __loaded:
+		__loaded[fqn] = getattr(import_module(module), klass)
+	return __loaded[fqn]
 
 def get_handler(filename):
 	"""Method to get the correct handler class based on file's extension."""
