@@ -14,7 +14,7 @@ class LogMessage():
 	def __str__(self):
 		level = getLevelName(self.level)
 		return '[%s] [%s] [%s] [%s] %s' % (time.asctime(self.logtime), level,
-										self.name, self.pid, self.msg)
+						self.name, self.pid, self.msg)
 
 class Logger():
 	"""A poor man's implementation of a Logger class for the use in
@@ -124,7 +124,7 @@ class Logging():
 			level = self.level
 		if name not in self.__active_loggers:
 			self.__active_loggers[name] = Logger(name, level, self.__dispatch,
-												self.queue)
+								self.queue)
 		return self.__active_loggers[name]
 
 # The global instance of Logging to kickstart log consumer on import
