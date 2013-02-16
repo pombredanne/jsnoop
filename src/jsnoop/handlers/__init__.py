@@ -16,13 +16,13 @@ def import_module(fqn):
 	return mod
 
 # Module prefix to make things cleaner
-module_prefix = 'jsnoop.handlers'
+__MODULE_PREFIX = 'jsnoop.handlers'
 
 # Default fall back handler
-default_module = 'simplefile'
+__DEFAULT_MODULE = 'simplefile'
 
 # Mapping between module names and containted handler classes
-classes = {
+__CLASSES = {
 	'archivefile'	: 'ArchiveFile',
 	'javaclass'	: 'ClassFile',
 	'manifest'	: 'ManifestFile',
@@ -32,7 +32,7 @@ classes = {
 
 # Mapping of file extensions and handler modules
 # File extensions are to be in lovercase with preceding '.' intact
-modules = {
+__MODULES = {
 	'.mf'	: 'manifest',
 	'.rsa'	: 'signature',
 	'.dsa'	: 'signature',
@@ -47,8 +47,40 @@ modules = {
 	'.war'	: 'archivefile'
 }
 
+def get_known_extensions():
+	"""Returns a list of extensions that the package knows about."""
+	return list(__MODULES.keys())
+
+__IGNORED_EXTENSIONS = []
+def ignore_extensions(arg):
+	"""Add either an extension or a list of extensions to the ignore lis. This
+	means that if we know of a handler for this type, we will ignore that and
+	handler using a simple file handler. If you want to ignore it completely,
+	you will have to implement that logic in your application. You can make use
+	of the ignored_extensions() method."""
+	exts = [arg] if isinstance(arg, str) else arg
+	exts = [ext.lower() for ext in exts]
+	__IGNORED_EXTENSIONS += exts
+
+def unignore_extensions(arg):
+	"""This method removes an extension or a list of extensions from the current
+	list of extensions if it exist."""
+	exts = [arg] if isinstance(arg, str) else arg
+	exts = [ext.lower() for ext in exts]
+	for ext in exts:
+		if ext in __IGNORED_EXTENSIONS:
+			__IGNORED_EXTENSIONS.remove(ext)
+
+def ignored_extensions():
+	"""Returns a list of extensions we ignore."""
+	return __IGNORED_EXTENSIONS
+
+def is_ignored_extension(ext):
+	"""Returns true if the given extension is being ignored."""
+	return ext.lower() in __IGNORED_EXTENSIONS
+
 # Dictionary to cache loaded clases, saves work for repeated loads
-__loaded = {}
+__LOADED = {}
 
 def __handler_class(module):
 	"""Internal method to assist in loading the correct class giving a module's
@@ -56,20 +88,23 @@ def __handler_class(module):
 	loads it, marks it as loaded then returns it.
 
 	Do not use this method unless you know what you are doing."""
-	klass = classes.get(module)
-	module = '%s.%s' % (module_prefix, module)
+	klass = __CLASSES.get(module)
+	module = '%s.%s' % (__MODULE_PREFIX, module)
 	fqn = '%s.%s' % (module, klass)
-	if fqn not in __loaded:
-		__loaded[fqn] = getattr(import_module(module), klass)
-	return __loaded[fqn]
+	if fqn not in __LOADED:
+		__LOADED[fqn] = getattr(import_module(module), klass)
+	return __LOADED[fqn]
 
 def get_handler(filename):
 	"""Method to get the correct handler class based on file's extension."""
 	try:
-		extension = splitext(filename)[-1]
-		module = modules.get(extension.lower(), default_module)
+		extension = splitext(filename)[-1].lower()
+		if is_ignored_extension(extension):
+			module = __DEFAULT_MODULE
+		else:
+			module = __MODULES.get(extension, __DEFAULT_MODULE)
 	except:
-		module = default_module
+		module = __DEFAULT_MODULE
 	return __handler_class(module)
 
 def get_handler_obj(filepath, fileobj=None, parent_path='', parent_sha512=None):
