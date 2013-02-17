@@ -118,8 +118,8 @@ class Logging():
 
 	def __consumer(self):
 		"""This functions creates a process that consumes log messages on the
-		queue untile a None object is received. This functions does nothing
-		if called once the instance's 'initialized' flag is set.
+		queue until a KillMessage object is received. This functions does
+		nothing	if called once the instance's 'initialized' flag is set.
 
 		This is intended for internal use only.."""
 		if self.is_initialized():
