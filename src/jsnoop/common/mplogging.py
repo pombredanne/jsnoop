@@ -2,6 +2,12 @@ import atexit
 import time
 from logging import NOTSET, INFO, DEBUG, WARN, CRITICAL, addLevelName, getLevelName
 from multiprocessing import Process, Pool, Manager, current_process
+from multiprocessing.queues import Empty
+
+SHUTDOWN_WAIT_TIMEOUT = 5
+
+class KillMessage():
+	pass
 
 class LogMessage():
 	def __init__(self, name, level, msg):
@@ -70,7 +76,10 @@ class Logging():
 
 	@property
 	def level(self):
-		return self.__level
+		try:
+			return self.__level
+		except:
+			return NOTSET
 
 	@level.setter
 	def level(self, level):
@@ -97,8 +106,15 @@ class Logging():
 		"""Kick starts the shut-down process for the Logging class"""
 		self.__dispatch.close()
 		self.__dispatch.join()
-		self.queue.put(None)
-		self.__process.join()
+		self.queue.put(KillMessage())
+		self.__process.join(SHUTDOWN_WAIT_TIMEOUT)
+		if self.__process.is_alive():
+			# We kill the process if it did not agree to die
+			self.__process.terminate()
+			if not self.queue.empty():
+				msg = 'Killed log consumer with messages still in queue.'
+				warning = LogMessage(__name__, WARN, msg)
+				print(warning)
 
 	def __consumer(self):
 		"""This functions creates a process that consumes log messages on the
@@ -108,19 +124,27 @@ class Logging():
 		This is intended for internal use only.."""
 		if self.is_initialized():
 			return None
-		term = False
-		while not (term and self.queue.empty()):
-			record = self.queue.get()
-			if record is None:
-				term = True
-			else:
-				print(str(record))
+		terminate = False
+		while not (terminate and self.queue.empty()):
+			try:
+				record = self.queue.get(True)
+				if isinstance(record, KillMessage):
+					terminate = True
+				elif isinstance(record, LogMessage):
+					print(str(record))
+				else:
+					warning = LogMessage(__name__, WARN, "Object of type %s \
+						found in logging queue" % (type(record)))
+					print(str(warning))
+			except Empty as e:
+				# We should not get this, but just in case.
+				pass
 
-	def get_logger(self, name, level=None):
+	def get_logger(self, name=__name__, level=None):
 		"""Returns a Logger instance for the given name. If no level is given
 		the global level is used. The class state caches the loggeres that are
 		created and reuses them as required."""
-		if not level:
+		if level is None:
 			level = self.level
 		if name not in self.__active_loggers:
 			self.__active_loggers[name] = Logger(name, level, self.__dispatch,
@@ -134,6 +158,6 @@ mplogging = Logging()
 def __graceful_shutdown():
 	"""This method triggers the shutdown of the logging consumer. This is
 	triggerred only when the python interpreter exits."""
-	logger = mplogging.get_logger('jsnoop.common.mplogging')
+	logger = mplogging.get_logger()
 	logger.info('Shutting down multiprocessor logging')
 	mplogging.shutdown()
