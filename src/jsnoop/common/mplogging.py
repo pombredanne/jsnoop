@@ -1,13 +1,11 @@
 import atexit
 import time
+from os import urandom
 from logging import NOTSET, INFO, DEBUG, WARN, CRITICAL, addLevelName, getLevelName
 from multiprocessing import Process, Pool, Manager, current_process
 from multiprocessing.queues import Empty
 
 SHUTDOWN_WAIT_TIMEOUT = 5
-
-class KillMessage():
-	pass
 
 class LogMessage():
 	def __init__(self, name, level, msg):
@@ -32,8 +30,8 @@ class Logger():
 		self.queue = queue
 
 	def __log(self, level, msg):
-		if level <= self.level:
-			log = LogMessage(self.name, level, msg)
+		if level >= self.level:
+			log = str(LogMessage(self.name, level, msg))
 			self.workers.apply_async(self.queue.put, (log,))
 
 	def critical(self, msg):
@@ -93,32 +91,37 @@ class Logging():
 	def __initialize(self):
 		"""Internal method to initialize all global variables. This initializes
 		the manager, queue, pool and trigger the consumer."""
+		# This is used to securely terminate the logging process once started
+		self.__terminator = 'TERMINATE'.encode() + urandom(10)
 		self.__manager = Manager()
 		self.__dispatch = Pool(processes=4)
-		self.__queue = self.__manager.Queue(-1)
+		self.__queue = self.__manager.JoinableQueue(-1)
 		self.__process = Process(target=self.__consumer)
 		self.__process.start()
 		self.__active_loggers = {}
-		self.level = NOTSET
+		self.level = INFO
 		self.initialized = True
+
+	def __log_direct(self, name, level, message):
+		log = LogMessage(name, level, message)
+		print(log)
 
 	def shutdown(self):
 		"""Kick starts the shut-down process for the Logging class"""
 		self.__dispatch.close()
 		self.__dispatch.join()
-		self.queue.put(KillMessage())
+		self.queue.put(self.__terminator)
 		self.__process.join(SHUTDOWN_WAIT_TIMEOUT)
 		if self.__process.is_alive():
 			# We kill the process if it did not agree to die
 			self.__process.terminate()
 			if not self.queue.empty():
 				msg = 'Killed log consumer with messages still in queue.'
-				warning = LogMessage(__name__, WARN, msg)
-				print(warning)
+				self.__log_direct(__name__, WARN, msg)
 
 	def __consumer(self):
 		"""This functions creates a process that consumes log messages on the
-		queue until a KillMessage object is received. This functions does
+		queue till the instance's terminate key is received. This functions does
 		nothing	if called once the instance's 'initialized' flag is set.
 
 		This is intended for internal use only.."""
@@ -128,14 +131,10 @@ class Logging():
 		while not (terminate and self.queue.empty()):
 			try:
 				record = self.queue.get(True)
-				if isinstance(record, KillMessage):
+				if isinstance(record, bytes) and self.__terminator == record:
 					terminate = True
-				elif isinstance(record, LogMessage):
-					print(str(record))
 				else:
-					warning = LogMessage(__name__, WARN, "Object of type %s \
-						found in logging queue" % (type(record)))
-					print(str(warning))
+					print(record)
 			except Empty as e:
 				# We should not get this, but just in case.
 				pass
@@ -158,6 +157,5 @@ mplogging = Logging()
 def __graceful_shutdown():
 	"""This method triggers the shutdown of the logging consumer. This is
 	triggerred only when the python interpreter exits."""
-	logger = mplogging.get_logger()
-	logger.info('Shutting down multiprocessor logging')
+	mplogging.get_logger().debug('Shutting down logging')
 	mplogging.shutdown()
