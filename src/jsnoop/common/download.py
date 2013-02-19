@@ -99,7 +99,7 @@ class _DownloadPool():
 		"""
 		if url in self.__downloads and overwrite:
 				del self.__downloads[url]
-		result = self.__workers.apply_async(DownloadPool._download,
+		result = self.__workers.apply_async(_DownloadPool._download,
 									(url, target, self.__downloads, overwrite))
 		if not async:
 			result.wait()
