@@ -20,36 +20,6 @@ class LogMessage():
 		return '[%s] [%s] [%s] [%s] %s' % (time.asctime(self.logtime), level,
 						self.name, self.pid, self.msg)
 
-class Logger():
-	"""A poor man's implementation of a Logger class for the use in
-	Logging.get_logger()."""
-	def __init__(self, name, level, workers, queue):
-		self.level = level
-		self.name = name
-		self.workers = workers
-		self.queue = queue
-
-	def __log(self, level, msg):
-		if level >= self.level:
-			log = str(LogMessage(self.name, level, msg))
-			self.workers.apply_async(self.queue.put, (log,))
-
-	def critical(self, msg):
-		self.__log(CRITICAL, msg)
-
-	def info(self, msg):
-		self.__log(INFO, msg)
-
-	def warning(self, msg):
-		self.__log(WARN, msg)
-
-	def debug(self, msg):
-		self.__log(DEBUG, msg)
-
-	def log(self, level, msg):
-		self.__log(level, msg)
-
-
 class Logging():
 	"""Logging class is a multiprocessing safe logging class. This class is
 	designed with the Borg DP in mind . (All instances of this class shares the
@@ -58,7 +28,15 @@ class Logging():
 	By design, this acts like a server consuming messages from a MP Queue. The
 	loggers received from get_logger() methed can communicate using this Queue.
 	"""
-	__shared_state = {}
+	__manager = Manager()
+	__shared_state = {
+		'_Logging__terminator'	: 'TERMINATE'.encode() + urandom(10),
+		'_Logging__manager'	: __manager,
+		'_Logging__dispatch'	: Pool(processes=4),
+		'_Logging__queue'	: __manager.Queue(-1),
+		'_Logging__initialized'	: __manager.Value(bool, False),
+		'_Logging__level'	: __manager.Value(int, INFO)
+	}
 	def __init__(self):
 		self.__dict__ = self.__shared_state
 		if not self.is_initialized():
@@ -92,18 +70,13 @@ class Logging():
 		"""Internal method to initialize all global variables. This initializes
 		the manager, queue, pool and trigger the consumer."""
 		# This is used to securely terminate the logging process once started
-		self.__terminator = 'TERMINATE'.encode() + urandom(10)
-		self.__manager = Manager()
-		self.__dispatch = Pool(processes=4)
-		self.__queue = self.__manager.JoinableQueue(-1)
 		self.__process = Process(target=self.__consumer)
 		self.__process.start()
-		self.__active_loggers = {}
 		self.level = INFO
-		self.initialized = True
+		self.__initialzied = True
 
 	def __log_direct(self, name, level, message):
-		log = LogMessage(name, level, message)
+		log = str(LogMessage(name, level, message))
 		print(log)
 
 	def shutdown(self):
@@ -139,23 +112,51 @@ class Logging():
 				# We should not get this, but just in case.
 				pass
 
-	def get_logger(self, name=__name__, level=None):
-		"""Returns a Logger instance for the given name. If no level is given
-		the global level is used. The class state caches the loggeres that are
-		created and reuses them as required."""
-		if level is None:
-			level = self.level
-		if name not in self.__active_loggers:
-			self.__active_loggers[name] = Logger(name, level, self.__dispatch,
-								self.queue)
-		return self.__active_loggers[name]
+	def _log(self, msg):
+		print('disp: ', self.__dispatch)
+		self.__dispatch.apply_async(self.queue.put, (msg,))
 
 # The global instance of Logging to kickstart log consumer on import
 mplogging = Logging()
+
+class Logger():
+	"""A poor man's implementation of a Logger class for the use in
+	Logging.get_logger()."""
+	def __init__(self, name, level):
+		self.level = level
+		self.name = name
+
+	def __log(self, level, msg):
+		if level >= self.level:
+			log = str(LogMessage(self.name, level, msg))
+			mplogging._log(log)
+
+	def critical(self, msg):
+		self.__log(CRITICAL, msg)
+
+	def info(self, msg):
+		self.__log(INFO, msg)
+
+	def warning(self, msg):
+		self.__log(WARN, msg)
+
+	def debug(self, msg):
+		self.__log(DEBUG, msg)
+
+	def log(self, level, msg):
+		self.__log(level, msg)
+
+def get_logger(name=__name__, level=None):
+	"""Returns a Logger instance for the given name. If no level is given
+	the global level is used. The class state caches the loggeres that are
+	created and reuses them as required."""
+	if level is None:
+		level = mplogging.level
+	return Logger(name, level)
 
 @atexit.register
 def __graceful_shutdown():
 	"""This method triggers the shutdown of the logging consumer. This is
 	triggerred only when the python interpreter exits."""
-	mplogging.get_logger().debug('Shutting down logging')
+	get_logger(__name__).info('Shutting down logging')
 	mplogging.shutdown()
