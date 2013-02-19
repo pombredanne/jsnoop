@@ -1,5 +1,5 @@
 import atexit
-from multiprocessing import Pool, Manager
+from multiprocessing import Manager
 from io import BytesIO
 from os.path import exists
 from urllib.request import urlopen, Request
@@ -85,7 +85,7 @@ class DownloadPool():
 		self.init = False
 		print('shutdown complete')
 
-__download_pool = DownloadPool(4)
+__download_pool = DownloadPool()
 
 def download(url, target, overwrite=False, async=True):
 	return __download_pool.download(url, target, overwrite, async)
