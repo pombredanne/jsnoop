@@ -24,93 +24,20 @@
 # The code is refactored and converted for use with py3k
 # A few other changes have also been made
 
-from configparser import ConfigParser
 from string import Template
 import os
 import locale
 import shutil
 import stat
-import time
 import hashlib
-import urllib.request, urllib.parse, urllib.error
 from xml.etree import ElementTree
 import sys
 import re
-from jip import logger
-import time
-from io import StringIO
-import queue
-import threading
 
-JIP_USER_AGENT = 'jsnoop/%s'
-BUF_SIZE = 4096
+from jsnoop.common.download import download, download_string, DownloadException
+from jsnoop.common.mplogging import mplogging
 
-class DownloadException(Exception):
-	pass
-
-def download(url, target, async=False, close_target=False, quiet=True):
-	# ## download file to target (target is a file-like object)
-	if async:
-		pool.submit(url, target)
-	else:
-		request = urllib.request.Request(url=url)
-		request.add_header('User-Agent', JIP_USER_AGENT)
-		try:
-			t0 = time.time()
-			source = urllib.request.urlopen(request)
-			size = source.headers.getheader('Content-Length')
-			if not quiet:
-				logger.info('[Downloading] %s %s bytes to download' % (url, size))
-			buf = source.read(BUF_SIZE)
-			while len(buf) > 0:
-				target.write(buf)
-				buf = source.read(BUF_SIZE)
-			source.close()
-			if close_target:
-				target.close()
-			t1 = time.time()
-			if not quiet:
-				logger.info('[Downloading] Download %s completed in %f secs' % (url, (t1 - t0)))
-		except urllib.error.HTTPError as e:
-			raise DownloadException(url, e)
-		except urllib.error.URLError as e:
-			raise DownloadException(url, e)
-
-def download_string(url):
-	buf = StringIO()
-	download(url, buf)
-	data = buf.getvalue()
-	buf.close()
-	return data
-
-class DownloadThreadPool(object):
-	def __init__(self, size=3):
-		self.queue = queue.Queue()
-		self.workers = [threading.Thread(target=self._do_work) for _ in range(size)]
-		self.initialized = False
-
-	def init_threads(self):
-		for worker in self.workers:
-			worker.setDaemon(True)
-			worker.start()
-		self.initialized = True
-
-	def _do_work(self):
-		while True:
-			url, target = self.queue.get()
-			download(url, target, close_target=True, quiet=False)
-			self.queue.task_done()
-
-	def join(self):
-		self.queue.join()
-
-	def submit(self, url, target):
-		if not self.initialized:
-			self.init_threads()
-		self.queue.put((url, target))
-
-pool = DownloadThreadPool(3)
-
+logger = mplogging.get_logger('jsnoop.plugins.maven')
 
 class RepositoryManager(object):
 	MAVEN_LOCAL_REPOS = ('local', os.path.expanduser('~/.m2/repository'), 'local')
@@ -134,28 +61,8 @@ class RepositoryManager(object):
 				self.repos.append(repo)
 			logger.debug('[Repository] Added: %s' % repo.name)
 
-	def _load_config(self):
-		config_file_path = os.path.join(get_virtual_home(), '.jip')
-		if not os.path.exists(config_file_path):
-			config_file_path = os.path.expanduser('~/.jip')
-		if os.path.exists(config_file_path):
-			config = ConfigParser()
-			config.read(config_file_path)
-
-			repos = []
-			# # only loop section starts with "repos:"
-			repos_sections = [x for x in config.sections() if x.startswith("repos:")]
-			for section in repos_sections:
-				name = section.split(':')[1]
-				uri = config.get(section, "uri")
-				rtype = config.get(section, "type")
-				repos.append((name, uri, rtype))
-			return repos
-		else:
-			return None
-
 	def init_repos(self):
-		for repo in (self._load_config() or [self.MAVEN_PUBLIC_REPOS]):
+		for repo in [self.MAVEN_PUBLIC_REPOS]:
 			# # create repos in order
 			name, uri, rtype = repo
 			self.add_repos(name, uri, rtype, order=len(self.repos))
@@ -177,7 +84,6 @@ class RepositoryManager(object):
 						'url': repo.uri})
 					reps.append(content)
 		return ''.join(reps)
-
 
 # # globals
 repos_manager = RepositoryManager()
@@ -264,9 +170,8 @@ class MavenHttpRemoteRepos(MavenRepos):
 		logger.info('[Downloading] jar from %s' % maven_path)
 		local_jip_path = local_path + "/" + artifact.to_jip_name()
 		local_f = open(local_jip_path, 'w')
-		# # download jar asyncly
 		download(maven_path, local_f, True)
-		# #logger.info('[Finished] %s downloaded ' % maven_path)
+		logger.debug('[Finished] %s downloaded ' % maven_path)
 
 	def download_pom(self, artifact):
 		if artifact in self.pom_not_found_cache:
