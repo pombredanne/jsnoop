@@ -1,12 +1,9 @@
 import atexit
 import time
-from os import urandom
 from logging import NOTSET, INFO, DEBUG, WARN, CRITICAL, addLevelName, getLevelName
-from multiprocessing import Process, Manager, current_process
-from multiprocessing.queues import Empty
+from multiprocessing import Process, current_process
 from multiprocessing.managers import BaseManager, BaseProxy
-from multiprocessing.util import ForkAwareThreadLock
-from jsnoop.common import AbstractMPBorg
+from jsnoop.common import AbstractQueueConsumer
 
 SHUTDOWN_WAIT_TIMEOUT = 5
 
@@ -26,7 +23,7 @@ class LogMessage():
 		return '[%s] [%s] [%s] [%s] %s' % (time.asctime(self.logtime), level,
 						self.name, self.pid, self.msg)
 
-class Logging(AbstractMPBorg):
+class Logging(AbstractQueueConsumer):
 	"""Logging class is a multiprocessing safe logging class. This class is
 	designed with the Borg DP in mind . (All instances of this class shares the
 	same states.) An instance of this class is to be used to get loggers.
@@ -35,11 +32,7 @@ class Logging(AbstractMPBorg):
 	loggers received from get_logger() methed can communicate using this Queue.
 	"""
 	def __init__(self, processes=4):
-		AbstractMPBorg.__init__(self, processes=processes)
-
-	@property
-	def queue(self):
-		return self.__queue
+		AbstractQueueConsumer.__init__(self, processes=processes)
 
 	@property
 	def level(self):
@@ -66,58 +59,21 @@ class Logging(AbstractMPBorg):
 	def _initialize(self, processes):
 		"""Internal method to initialize all global variables. This initializes
 		the manager, queue, pool and trigger the consumer."""
-		self.__terminator = 'TERMINATE'.encode() + urandom(10)
-		self.__manager = Manager()
-		self.__dispatch = self.__manager.Pool(processes)
-		self.__queue = self.__manager.Queue(-1)
-		self.__initialized = self.__manager.Value(bool, False)
-		self.__level = self.__manager.Value(int, INFO)
+		AbstractQueueConsumer._initialize(self, processes)
+		self.__level = self._manager.Value(int, INFO)
 		# This is used to securely terminate the logging process once started
-		self.__process = Process(target=self.__consumer)
-		self.__process.start()
 		self.level = INFO
-		self.__initialzied = True
 
 	def __log_direct(self, name, level, message):
 		log = str(LogMessage(name, level, message))
 		print(log)
 
-	def shutdown(self):
-		"""Kick starts the shut-down process for the Logging class"""
-		self.__dispatch.close()
-		self.__dispatch.join()
-		self.queue.put(self.__terminator)
-		self.__process.join(SHUTDOWN_WAIT_TIMEOUT)
-		if self.__process.is_alive():
-			# We kill the process if it did not agree to die
-			self.__process.terminate()
-			if not self.queue.empty():
-				msg = 'Killed log consumer with messages still in queue.'
-				self.__log_direct(__name__, WARN, msg)
-
-	def __consumer(self):
-		"""This functions creates a process that consumes log messages on the
-		queue till the instance's terminate key is received. This functions does
-		nothing	if called once the instance's 'initialized' flag is set.
-
-		This is intended for internal use only.."""
-		if self.is_initialized():
-			return None
-		terminate = False
-		while not (terminate and self.queue.empty()):
-			try:
-				record = self.queue.get(True)
-				if isinstance(record, bytes) and self.__terminator == record:
-					terminate = True
-				else:
-					print(record)
-			except Empty as e:
-				# We should not get this, but just in case.
-				pass
+	def _record_handler(self, record):
+		print(record)
 
 	def log(self, name, level, msg, pid):
 		log = str(LogMessage(name, level, msg, pid))
-		self.queue.put(log)
+		self._put(log)
 
 class Logger():
 	"""A poor man's implementation of a Logger class for the use in
