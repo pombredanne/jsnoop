@@ -221,5 +221,5 @@ def get_log_level():
 def __graceful_shutdown():
 	"""This method triggers the shutdown of the logging consumer. This is
 	triggerred only when the python interpreter exits."""
-	get_logger(__name__).info('Shutting down logging')
+	get_logger(__name__).debug('Shutting down logging')
 	mplogging.shutdown()
