@@ -8,7 +8,7 @@ from multiprocessing.util import ForkAwareThreadLock
 from multiprocessing.managers import BaseManager
 from jsnoop.common.mplogging import get_logger
 
-logger = get_logger('jsnoop.common.download', 10)
+logger = get_logger('jsnoop.common.download')
 
 DOWNLOAD_USER_AGENT = 'python'
 BUF_SIZE = 4096
