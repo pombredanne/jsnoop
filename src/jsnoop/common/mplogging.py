@@ -2,18 +2,23 @@ import atexit
 import time
 from os import urandom
 from logging import NOTSET, INFO, DEBUG, WARN, CRITICAL, addLevelName, getLevelName
-from multiprocessing import Process, Pool, Manager, current_process
+from multiprocessing import Process, Manager, current_process
 from multiprocessing.queues import Empty
+from multiprocessing.managers import BaseManager, BaseProxy
+from multiprocessing.util import ForkAwareThreadLock
 
 SHUTDOWN_WAIT_TIMEOUT = 5
 
 class LogMessage():
-	def __init__(self, name, level, msg):
+	def __init__(self, name, level, msg, pid=None):
 		self.logtime = time.localtime()
 		self.level = level
 		self.msg = msg
 		self.name = name
-		self.pid = current_process().pid
+		if pid:
+			self.pid = pid
+		else:
+			self.pid = current_process().pid
 
 	def __str__(self):
 		level = getLevelName(self.level)
@@ -28,19 +33,17 @@ class Logging():
 	By design, this acts like a server consuming messages from a MP Queue. The
 	loggers received from get_logger() methed can communicate using this Queue.
 	"""
-	__manager = Manager()
-	__shared_state = {
-		'_Logging__terminator'	: 'TERMINATE'.encode() + urandom(10),
-		'_Logging__manager'	: __manager,
-		'_Logging__dispatch'	: Pool(processes=4),
-		'_Logging__queue'	: __manager.Queue(-1),
-		'_Logging__initialized'	: __manager.Value(bool, False),
-		'_Logging__level'	: __manager.Value(int, INFO)
-	}
+	_mutex = ForkAwareThreadLock()
+	__shared_state = {}
 	def __init__(self):
-		self.__dict__ = self.__shared_state
-		if not self.is_initialized():
-			self.__initialize()
+		Logging._mutex.acquire()
+		try:
+			self.__dict__ = self.__shared_state
+			if not self.is_initialized():
+				self.__initialize()
+		finally:
+			Logging._mutex.release()
+
 
 	def is_initialized(self):
 		"""Tests if the shared state was initialized."""
@@ -61,6 +64,12 @@ class Logging():
 	def level(self, level):
 		self.__level = level
 
+	def get_log_level(self):
+		return self.level
+
+	def set_log_level(self, level):
+		self.level = level
+
 	def addLevelName(self, level, levelName):
 		"""Method adds a new level with a given name. This is just a wrapper for
 		logging.addLevelName."""
@@ -69,6 +78,12 @@ class Logging():
 	def __initialize(self):
 		"""Internal method to initialize all global variables. This initializes
 		the manager, queue, pool and trigger the consumer."""
+		self.__terminator = 'TERMINATE'.encode() + urandom(10)
+		self.__manager = Manager()
+		self.__dispatch = self.__manager.Pool(processes=4)
+		self.__queue = self.__manager.Queue(-1)
+		self.__initialized = self.__manager.Value(bool, False)
+		self.__level = self.__manager.Value(int, INFO)
 		# This is used to securely terminate the logging process once started
 		self.__process = Process(target=self.__consumer)
 		self.__process.start()
@@ -112,47 +127,95 @@ class Logging():
 				# We should not get this, but just in case.
 				pass
 
-	def _log(self, msg):
-		print('disp: ', self.__dispatch)
-		self.__dispatch.apply_async(self.queue.put, (msg,))
-
-# The global instance of Logging to kickstart log consumer on import
-mplogging = Logging()
+	def log(self, name, level, msg, pid):
+		log = str(LogMessage(name, level, msg, pid))
+		self.queue.put(log)
 
 class Logger():
 	"""A poor man's implementation of a Logger class for the use in
 	Logging.get_logger()."""
-	def __init__(self, name, level):
+	def __init__(self, name, level, server, pid):
 		self.level = level
 		self.name = name
+		self.server = server
 
-	def __log(self, level, msg):
+	def __log(self, pid, level, msg):
 		if level >= self.level:
-			log = str(LogMessage(self.name, level, msg))
-			mplogging._log(log)
+			args = (self.name, level, msg, pid)
+			p = Process(target=self.server.log, args=args)
+			p.start()
 
-	def critical(self, msg):
-		self.__log(CRITICAL, msg)
+	def get_log_level(self):
+		return self.level
 
-	def info(self, msg):
-		self.__log(INFO, msg)
+	def set_log_level(self, level):
+		self.level = level
 
-	def warning(self, msg):
-		self.__log(WARN, msg)
+	def critical(self, pid, msg):
+		self.__log(pid, CRITICAL, msg)
 
-	def debug(self, msg):
-		self.__log(DEBUG, msg)
+	def info(self, pid, msg):
+		self.__log(pid, INFO, msg)
 
-	def log(self, level, msg):
-		self.__log(level, msg)
+	def warning(self, pid, msg):
+		self.__log(pid, WARN, msg)
+
+	def warn(self, pid, msg):
+		self.__log(pid, WARN, msg)
+
+	def debug(self, pid, msg):
+		self.__log(pid, DEBUG, msg)
+
+	def log(self, pid, level, msg):
+		self.__log(pid, level, msg)
+
+class LoggerProxy(BaseProxy):
+	def __init__(self, token, serializer, manager=None,
+		authkey=None, exposed=None, incref=True):
+		BaseProxy.__init__(self, token, serializer, manager=manager, authkey=authkey, exposed=exposed, incref=incref)
+		self.pid = current_process().pid
+
+	# Generate normal proxy methods
+	for meth in ['get_log_level', 'set_log_level']:
+		exec('''def %s(self, *args, **kwds):
+		return self._callmethod(%r, args, kwds)''' % (meth, meth))
+
+	# Generate proxy methods that require current pid
+	for meth in ['critical', 'log', 'info', 'warning', 'warn', 'debug']:
+		exec('''def %s(self, *args, **kwds):
+		pid = current_process().pid
+		return self._callmethod(%r, (pid,) + args, kwds)''' % (meth, meth))
+
+# A simple manager so we are multiprocessing safe
+class LoggingManager(BaseManager): pass
+
+# Register classes
+LoggingManager.register('Logging', Logging)
+LoggingManager.register('Logger', Logger, LoggerProxy)
+
+# Start the logging manager
+manager = LoggingManager()
+manager.start()
+
+# The global instance of Logging to kickstart log consumer on import
+mplogging = manager.Logging()
 
 def get_logger(name=__name__, level=None):
 	"""Returns a Logger instance for the given name. If no level is given
 	the global level is used. The class state caches the loggeres that are
 	created and reuses them as required."""
 	if level is None:
-		level = mplogging.level
-	return Logger(name, level)
+		level = mplogging.get_log_level()
+	pid = current_process().pid
+	return manager.Logger(name, level, mplogging, pid)
+
+def set_log_level(level):
+	"""Sets the global logging level"""
+	mplogging.set_log_level(level)
+
+def get_log_level():
+	"""Returns the global logging level"""
+	return mplogging.get_log_level()
 
 @atexit.register
 def __graceful_shutdown():
