@@ -1,12 +1,11 @@
 import atexit
-from multiprocessing import Manager
 from io import BytesIO
-from os import getcwd
-from os.path import exists, isdir, join
+from time import sleep
+from os.path import exists
 from urllib.request import urlopen, Request
-from multiprocessing.util import ForkAwareThreadLock
 from multiprocessing.managers import BaseManager
 from jsnoop.common.mplogging import get_logger
+from jsnoop.common import AbstractQueueConsumer
 
 logger = get_logger('jsnoop.common.download')
 
@@ -20,12 +19,16 @@ class DownloadState(object):
 
 class DownloadException(Exception): pass
 
-class DownloadStarted(DownloadState): pass
+class Downloading(DownloadState): pass
 
-class DownloadDone(DownloadStarted):
+class Done(DownloadState):
 	def __init__(self, url, memobj=None):
-		DownloadStarted.__init__(self, url)
+		DownloadState.__init__(self, url)
 		self.memobj = memobj
+
+class DownloadResult():
+	def __init__(self, url):
+		self.url = url
 
 def download_bytes(url):
 	"""This is the workhorse method for the download module. This method
@@ -49,24 +52,14 @@ def download_string(url):
 	bio = download_bytes(url)
 	return bio.getvalue().decode()
 
-class _DownloadPool():
-	"""A shared state class (Borg) acting as the download manager.
-	This class blocks the interpreter's exit till all downloads are completed.
-	"""
-	__mutex = ForkAwareThreadLock()
-	__shared_state = {'init':False}
+class DownloadPool(AbstractQueueConsumer):
 	def __init__(self, processes=4):
-		_DownloadPool.__mutex.acquire()
-		try:
-			self.__dict__ = self.__shared_state
-			if not self.init:
-				logger.debug('Starting Download Pool')
-				self.__manager = Manager()
-				self.__workers = self.__manager.Pool(processes)
-				self.__downloads = self.__manager.dict()
-				self.init = True
-		finally:
-			_DownloadPool.__mutex.release()
+		AbstractQueueConsumer.__init__(self, processes=processes)
+
+	def _initialize(self, processes):
+		AbstractQueueConsumer._initialize(self, processes)
+		self._downloads = self._manager.dict()
+		self._results = self._manager.dict()
 
 	def get_state(self, url):
 		"""Returns the state of a given url.
@@ -78,48 +71,55 @@ class _DownloadPool():
 		"""
 		return self.__downloads.get(url, None)
 
-	def is_done(self, url):
-		"""Tests if the given url is known to be in DownloadDone state"""
-		state = self.get_state(url)
-		return isinstance(state, DownloadDone)
+	def discard_result(self, result):
+		assert isinstance(result, DownloadResult)
+		if result.url in self._downloads:
+			del self._downloads[result.url]
 
-	def is_error(self, url):
-		"""Tests if the given url is known to be in DownloadException state"""
-		state = self.get_state(url)
-		return isinstance(state, DownloadException)
+	def wait(self, result):
+		while (result.url not in self._downloads):
+			sleep(0.5)
 
-	def discard_download(self, state):
-		if isinstance(state, DownloadDone):
-			url = state.url
-			del self.__downloads[url]
+	def fetch_download(self, result, block=False, discard_done=True):
+		assert isinstance(result, DownloadResult)
+		if block:
+			self.wait(result)
+		if result.url in self._downloads:
+			state = self._downloads[result.url]
+			if isinstance(state, Done):
+				value = state.memobj
+				if discard_done:
+					self.discard_result(result)
+				return value
+		return None
 
-	def get_download_result(self, url, discard=True):
-		result = None
-		if self.is_done(url):
-			state = self.get_state(url)
-			result = state.memobj
-			self.discard(state)
-		return result
-
-	@classmethod
-	def _download(cls, url, target, downloads_dict, overwrite=False):
-		if url in downloads_dict:
-			return
+	def _record_handler(self, url, target=BytesIO(), overwrite=False):
+		logger.debug('Downloading %s' % (url))
+		if url in self._downloads:
+			known_state = self.get_state(url)
+			if known_state \
+			and not isinstance(known_state, DownloadException) \
+			and not overwrite:
+				return
+			else:
+				self.discard_result(url)
 		try:
-			assert not exists(target) or overwrite
-			if not hasattr(target, 'write'):
+			if isinstance(target, str):
+				# Give taget is a string, we assume its a file path
+				if exists(target) and not overwrite:
+					return
 				dest = open(target, 'wb')
 			else:
+				# If not a filepath, must be a stream right?
 				dest = target
-			downloads_dict[url] = DownloadStarted(url)
+			self._downloads[url] = Downloading(url)
 			bio = download_bytes(url)
 			dest.write(bio.getvalue())
 			if dest != target:
 				dest.close()
-			downloads_dict[url] = DownloadDone(url, target)
+			self._downloads[url] = Done(url, target)
 		except Exception as e:
-			print(e)
-			downloads_dict[url] = DownloadException(url, e)
+			self._downloads[url] = DownloadException(url, e)
 
 	def download(self, url, target, async=True, overwrite=False):
 		"""Downloads the given url to the specified target.
@@ -128,51 +128,47 @@ class _DownloadPool():
 
 		Keyword arguments:
 		url -- the source url to be downloaded
-		target -- the filepath/IO to write the received bytes to
+		target -- the dest to write the received bytes (default BytesIO())
 		async -- do we wait for the download to complete? (default True)
 		overwrite -- do we overwrite existing files? (default False)
 		"""
-		logger.debug('Received %sdownlad request: %s' % (
-												'async ' if async else '', url))
-		if url in self.__downloads and overwrite:
-				del self.__downloads[url]
-		result = self.__workers.apply_async(_DownloadPool._download,
-									(url, target, self.__downloads, overwrite))
+		result = DownloadResult(url)
 		if not async:
-			result.wait()
-			return self.get_state(url)
+			self._record_handler(url, target, overwrite)
+			self.wait(result)
 		else:
-			return result
-
-	def shutdown(self):
-		"""Triggers the shutdown of download manager pool. Will wailt till
-		all active pool workers finish downloads."""
-		logger.debug('Shutting down Download Pool')
-		self.__workers.close()
-		self.__workers.join()
-		self.init = False
+			self._put(url, target, overwrite)
+		return result
 
 class DownloadManager(BaseManager): pass
 
-DownloadManager.register('DownloadPool', _DownloadPool)
+DownloadManager.register('DownloadPool', DownloadPool)
+
 __download_manager = DownloadManager()
 __download_manager.start()
 __download_pool = __download_manager.DownloadPool()
 
-def download(url, target=None, async=True, overwrite=False):
+def download(url, target=BytesIO(), async=True, overwrite=False):
 	"""Download a url to the given target.
 
 	If a target is not provided, a new BytesIO object is created and used.
 
 	Keyword arguments:
 	url -- the source url to be downloaded
-	target -- the filepath/IO to write the received bytes to
+	target -- the dest to write the received bytes (default BytesIO())
 	async -- do we wait for the download to complete? (default True)
 	overwrite -- do we overwrite existing files? (default False)
 	"""
-	if not target:
-		target = BytesIO()
 	return __download_pool.download(url, target, async, overwrite)
+
+def fetch_result(result, block=True, discard_done=True):
+	return __download_pool.fetch_download(result, block, discard_done)
+
+def download_async(url, target=BytesIO()):
+	return download(url, target, True)
+
+def download_blocking(url, target=BytesIO()):
+	return download(url, target, False)
 
 @atexit.register
 def __close_active_pools():
