@@ -6,6 +6,7 @@ from multiprocessing import Process, Manager, current_process
 from multiprocessing.queues import Empty
 from multiprocessing.managers import BaseManager, BaseProxy
 from multiprocessing.util import ForkAwareThreadLock
+from jsnoop.common import AbstractMPBorg
 
 SHUTDOWN_WAIT_TIMEOUT = 5
 
@@ -25,7 +26,7 @@ class LogMessage():
 		return '[%s] [%s] [%s] [%s] %s' % (time.asctime(self.logtime), level,
 						self.name, self.pid, self.msg)
 
-class Logging():
+class Logging(AbstractMPBorg):
 	"""Logging class is a multiprocessing safe logging class. This class is
 	designed with the Borg DP in mind . (All instances of this class shares the
 	same states.) An instance of this class is to be used to get loggers.
@@ -33,21 +34,8 @@ class Logging():
 	By design, this acts like a server consuming messages from a MP Queue. The
 	loggers received from get_logger() methed can communicate using this Queue.
 	"""
-	_mutex = ForkAwareThreadLock()
-	__shared_state = {}
-	def __init__(self):
-		Logging._mutex.acquire()
-		try:
-			self.__dict__ = self.__shared_state
-			if not self.is_initialized():
-				self.__initialize()
-		finally:
-			Logging._mutex.release()
-
-
-	def is_initialized(self):
-		"""Tests if the shared state was initialized."""
-		return self.__dict__.get('initialized', False)
+	def __init__(self, processes=4):
+		AbstractMPBorg.__init__(self, processes=processes)
 
 	@property
 	def queue(self):
@@ -75,12 +63,12 @@ class Logging():
 		logging.addLevelName."""
 		addLevelName(level, levelName)
 
-	def __initialize(self):
+	def _initialize(self, processes):
 		"""Internal method to initialize all global variables. This initializes
 		the manager, queue, pool and trigger the consumer."""
 		self.__terminator = 'TERMINATE'.encode() + urandom(10)
 		self.__manager = Manager()
-		self.__dispatch = self.__manager.Pool(processes=4)
+		self.__dispatch = self.__manager.Pool(processes)
 		self.__queue = self.__manager.Queue(-1)
 		self.__initialized = self.__manager.Value(bool, False)
 		self.__level = self.__manager.Value(int, INFO)
