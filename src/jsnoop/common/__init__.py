@@ -52,7 +52,7 @@ class AbstractQueueConsumer(AbstractMPBorg):
 		self._initialzied = True
 
 	def shutdown(self):
-		"""Kick starts the shut-down process for the Logging class"""
+		"""Kick starts the shut-down process for the class"""
 		self._dispatch.close()
 		self._dispatch.join()
 		self.queue.put(self._terminator)
@@ -73,7 +73,7 @@ class AbstractQueueConsumer(AbstractMPBorg):
 		self.queue.put(record)
 
 	def _consumer(self):
-		"""This functions creates a process that consumes log messages on the
+		"""This functions creates a process that consumes records on the
 		queue till the instance's terminate key is received. This functions does
 		nothing	if called once the instance's 'initialized' flag is set.
 
