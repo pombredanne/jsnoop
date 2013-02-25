@@ -53,13 +53,13 @@ def download_string(url):
 	return bio.getvalue().decode()
 
 class DownloadPool(AbstractQueueConsumer):
-	def __init__(self, processes=4):
-		AbstractQueueConsumer.__init__(self, processes=processes)
+	def __init__(self, consumers=4):
+		AbstractQueueConsumer.__init__(self, consumers)
 
-	def _initialize(self, processes):
-		AbstractQueueConsumer._initialize(self, processes)
+	def _initialize(self, consumers):
 		self._downloads = self._manager.dict()
 		self._results = self._manager.dict()
+		AbstractQueueConsumer._initialize(self, consumers)
 
 	def get_state(self, url):
 		"""Returns the state of a given url.
@@ -69,7 +69,7 @@ class DownloadPool(AbstractQueueConsumer):
 
 		Expected states are DownloadStarted, DownloadDone and DownloadException.
 		"""
-		return self.__downloads.get(url, None)
+		return self._downloads.get(url, None)
 
 	def discard_result(self, result):
 		assert isinstance(result, DownloadResult)
@@ -93,8 +93,9 @@ class DownloadPool(AbstractQueueConsumer):
 				return value
 		return None
 
-	def _record_handler(self, url, target=BytesIO(), overwrite=False):
-		logger.debug('Downloading %s' % (url))
+	def _download(self, url, target, overwrite):
+		if not target:
+			target = BytesIO()
 		if url in self._downloads:
 			known_state = self.get_state(url)
 			if known_state \
@@ -121,6 +122,10 @@ class DownloadPool(AbstractQueueConsumer):
 		except Exception as e:
 			self._downloads[url] = DownloadException(url, e)
 
+	def _record_handler(self, url, target, overwrite):
+		logger.debug('Downloading %s' % (url))
+		self._download(url, target, overwrite)
+
 	def download(self, url, target, async=True, overwrite=False):
 		"""Downloads the given url to the specified target.
 
@@ -134,7 +139,7 @@ class DownloadPool(AbstractQueueConsumer):
 		"""
 		result = DownloadResult(url)
 		if not async:
-			self._record_handler(url, target, overwrite)
+			self._download(url, target, overwrite)
 			self.wait(result)
 		else:
 			self._put(url, target, overwrite)
@@ -148,7 +153,7 @@ __download_manager = DownloadManager()
 __download_manager.start()
 __download_pool = __download_manager.DownloadPool()
 
-def download(url, target=BytesIO(), async=True, overwrite=False):
+def download(url, target=None, async=True, overwrite=False):
 	"""Download a url to the given target.
 
 	If a target is not provided, a new BytesIO object is created and used.
@@ -164,13 +169,14 @@ def download(url, target=BytesIO(), async=True, overwrite=False):
 def fetch_result(result, block=True, discard_done=True):
 	return __download_pool.fetch_download(result, block, discard_done)
 
-def download_async(url, target=BytesIO()):
-	return download(url, target, True)
+def download_async(url, target=None, overwrite=False):
+	return download(url, target, True, overwrite)
 
-def download_blocking(url, target=BytesIO()):
-	return download(url, target, False)
+def download_blocking(url, target=None, overwrite=False):
+	return download(url, target, False, overwrite)
 
 @atexit.register
 def __close_active_pools():
 	"""Triggers shutdown on exit"""
-	__download_pool.shutdown()
+	# We wait infinitely for downloads to finish
+	__download_pool.shutdown(None)

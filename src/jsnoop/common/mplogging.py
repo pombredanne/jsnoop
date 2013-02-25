@@ -5,7 +5,7 @@ from multiprocessing import Process, current_process
 from multiprocessing.managers import BaseManager, BaseProxy
 from jsnoop.common import AbstractQueueConsumer
 
-SHUTDOWN_WAIT_TIMEOUT = 5
+DFAULT_LOG_LEVEL = INFO
 
 class LogMessage():
 	def __init__(self, name, level, msg, pid=None):
@@ -31,8 +31,8 @@ class Logging(AbstractQueueConsumer):
 	By design, this acts like a server consuming messages from a MP Queue. The
 	loggers received from get_logger() methed can communicate using this Queue.
 	"""
-	def __init__(self, processes=4):
-		AbstractQueueConsumer.__init__(self, processes=processes)
+	def __init__(self, consumers=1):
+		AbstractQueueConsumer.__init__(self, consumers)
 
 	@property
 	def level(self):
@@ -56,13 +56,12 @@ class Logging(AbstractQueueConsumer):
 		logging.addLevelName."""
 		addLevelName(level, levelName)
 
-	def _initialize(self, processes):
+	def _initialize(self, consumers):
 		"""Internal method to initialize all global variables. This initializes
 		the manager, queue, pool and trigger the consumer."""
-		AbstractQueueConsumer._initialize(self, processes)
-		self.__level = self._manager.Value(int, INFO)
+		self.level = DFAULT_LOG_LEVEL
 		# This is used to securely terminate the logging process once started
-		self.level = INFO
+		AbstractQueueConsumer._initialize(self, consumers)
 
 	def __log_direct(self, name, level, message):
 		log = str(LogMessage(name, level, message))
