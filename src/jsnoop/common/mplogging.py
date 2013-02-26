@@ -23,8 +23,8 @@ class LogMessage():
 		return '[%s] [%s] [%s] [%s] %s' % (time.asctime(self.logtime), level,
 						self.name, self.pid, self.msg)
 
-class Logging(AbstractQueueConsumer):
-	"""Logging class is a multiprocessing safe logging class. This class is
+class _Logging(AbstractQueueConsumer):
+	"""_Logging class is a multiprocessing safe logging class. This class is
 	designed with the Borg DP in mind . (All instances of this class shares the
 	same states.) An instance of this class is to be used to get loggers.
 
@@ -74,15 +74,15 @@ class Logging(AbstractQueueConsumer):
 		log = str(LogMessage(name, level, msg, pid))
 		self._put(log)
 
-class Logger():
-	"""A poor man's implementation of a Logger class for the use in
-	Logging.get_logger()."""
+class _Logger():
+	"""A poor man's implementation of a _Logger class for the use in
+	_Logging.get_logger()."""
 	def __init__(self, name, level, server, pid):
 		self.level = level
 		self.name = name
 		self.server = server
 
-	def __log(self, pid, level, msg):
+	def _log(self, pid, level, msg):
 		if level >= self.level:
 			args = (self.name, level, msg, pid)
 			p = Process(target=self.server.log, args=args)
@@ -95,24 +95,24 @@ class Logger():
 		self.level = level
 
 	def critical(self, pid, msg):
-		self.__log(pid, CRITICAL, msg)
+		self._log(pid, CRITICAL, msg)
 
 	def info(self, pid, msg):
-		self.__log(pid, INFO, msg)
+		self._log(pid, INFO, msg)
 
 	def warning(self, pid, msg):
-		self.__log(pid, WARN, msg)
+		self._log(pid, WARN, msg)
 
 	def warn(self, pid, msg):
-		self.__log(pid, WARN, msg)
+		self._log(pid, WARN, msg)
 
 	def debug(self, pid, msg):
-		self.__log(pid, DEBUG, msg)
+		self._log(pid, DEBUG, msg)
 
 	def log(self, pid, level, msg):
-		self.__log(pid, level, msg)
+		self._log(pid, level, msg)
 
-class LoggerProxy(BaseProxy):
+class _LoggerProxy(BaseProxy):
 	def __init__(self, token, serializer, manager=None,
 		authkey=None, exposed=None, incref=True):
 		BaseProxy.__init__(self, token, serializer, manager=manager, authkey=authkey, exposed=exposed, incref=incref)
@@ -133,36 +133,36 @@ class LoggerProxy(BaseProxy):
 class LoggingManager(BaseManager): pass
 
 # Register classes
-LoggingManager.register('Logging', Logging)
-LoggingManager.register('Logger', Logger, LoggerProxy)
+LoggingManager.register('Logging', _Logging)
+LoggingManager.register('Logger', _Logger, _LoggerProxy)
 
-# Start the logging manager
-manager = LoggingManager()
-manager.start()
+# Start the module logging manager
+__logging_manager = LoggingManager()
+__logging_manager.start()
 
-# The global instance of Logging to kickstart log consumer on import
-mplogging = manager.Logging()
+# The global instance of _Logging to kickstart log consumer on import
+__mplogging = __logging_manager.Logging()
 
-def get_logger(name=__name__, level=None):
-	"""Returns a Logger instance for the given name. If no level is given
+def Logger(name=__name__, level=None):
+	"""Returns a _Logger instance for the given name. If no level is given
 	the global level is used. The class state caches the loggeres that are
 	created and reuses them as required."""
 	if level is None:
-		level = mplogging.get_log_level()
+		level = __mplogging.get_log_level()
 	pid = current_process().pid
-	return manager.Logger(name, level, mplogging, pid)
+	return __logging_manager.Logger(name, level, __mplogging, pid)
 
 def set_log_level(level):
 	"""Sets the global logging level"""
-	mplogging.set_log_level(level)
+	__mplogging.set_log_level(level)
 
 def get_log_level():
 	"""Returns the global logging level"""
-	return mplogging.get_log_level()
+	return __mplogging.get_log_level()
 
 @atexit.register
 def __graceful_shutdown():
 	"""This method triggers the shutdown of the logging consumer. This is
 	triggerred only when the python interpreter exits."""
-	get_logger(__name__).debug('Shutting down logging')
-	mplogging.shutdown()
+	Logger(__name__).debug('Shutting down logging')
+	__mplogging.shutdown()
