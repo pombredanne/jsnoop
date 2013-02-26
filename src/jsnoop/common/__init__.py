@@ -44,7 +44,11 @@ class AbstractQueueConsumer(AbstractMPBorg):
 
 	def _initialize(self, consumers):
 		"""Internal method to initialize all global variables. This initializes
-		the manager, queue, pool and trigger the consumer."""
+		the manager, queue, pool and trigger the consumer.
+
+		If additional initializations need to be done, implentor can overwrite
+		this method. Note that this should be called after additional
+		initializations are performed."""
 		self._terminator = 'TERMINATE'.encode() + urandom(10)
 		self._queue = self._manager.Queue(-1)
 		self._consumers = consumers
