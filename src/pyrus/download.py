@@ -4,10 +4,10 @@ from time import sleep
 from os.path import exists
 from urllib.request import urlopen, Request
 from multiprocessing.managers import BaseManager
-from jsnoop.common.mplogging import get_logger
-from jsnoop.common import AbstractQueueConsumer
+from pyrus.mplogging import get_logger
+from pyrus import AbstractQueueConsumer
 
-logger = get_logger('jsnoop.common.download')
+logger = get_logger('pyrus.download')
 
 DOWNLOAD_USER_AGENT = 'python'
 BUF_SIZE = 4096

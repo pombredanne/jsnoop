@@ -1,5 +1,5 @@
 from jsnoop.handlers import AbstractFile
-from jsnoop.common.archives import is_archive, make_archive_obj
+from pyrus.archives import is_archive, make_archive_obj
 
 class ArchiveFile(AbstractFile):
 	def __init__(self, filepath, fileobj=None, parent_path='',

@@ -3,7 +3,7 @@ import time
 from logging import NOTSET, INFO, DEBUG, WARN, CRITICAL, addLevelName, getLevelName
 from multiprocessing import Process, current_process
 from multiprocessing.managers import BaseManager, BaseProxy
-from jsnoop.common import AbstractQueueConsumer
+from pyrus import AbstractQueueConsumer
 
 DFAULT_LOG_LEVEL = INFO
 

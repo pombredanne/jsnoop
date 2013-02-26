@@ -21,7 +21,7 @@ class ClassFile(AbstractFile):
 
 	def info(self):
 		"""Returns the information related to this file, this includes those
-		provided by jsnoop.common.file.AbstractFile.info() and info extracted
+		provided by pyrus.file.AbstractFile.info() and info extracted
 		from the binary class file."""
 		fileinfo = AbstractFile.info(self)
 		fileinfo['magic'] = self.magic

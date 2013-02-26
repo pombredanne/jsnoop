@@ -1,6 +1,6 @@
 from os import makedirs
 from os.path import sep, exists, isfile, splitext, basename, join, dirname
-from jsnoop.common.checksum import hexdigest
+from pyrus.checksum import hexdigest
 from abc import abstractproperty, ABCMeta
 from tempfile import mkdtemp
 
