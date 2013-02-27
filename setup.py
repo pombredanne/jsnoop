@@ -10,12 +10,19 @@ setup(
 	url="https://github.com/abn/jsnoop",
 	download_url="https://github.com/abn/jsnoop",
 
-	install_requires=[],
+	dependency_links=[
+			'http://github.com/abn/pyrus/tarball/master#egg=pyrus-0.0.1'
+			],
+
+	install_requires=[
+			'pyrus'
+			],
 
 	# license="",
 
-	packages=find_packages('src'),
+	packages=find_packages('src', exclude=("pyrus",)),
 	package_dir={'': 'src'},
+	# exclude_package_data={ '': ['pyrus'] },
 	include_package_data=True,
 
 	# test_suite="",
