@@ -19,8 +19,7 @@
 # SOFTWARE.
 #
 
-# This code has been shamelesly taken from jip project
-# https://github.com/sunng87/jip
+# This code has been taken from jip project https://github.com/sunng87/jip
 # The code is refactored and converted for use with py3k
 # A few other changes have also been made
 
