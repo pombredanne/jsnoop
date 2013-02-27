@@ -28,11 +28,10 @@ pip http://github.com/abn/jsnoop/tarball/master#egg=jsnoop-0.0.1
 
 Examples
 -----
-To use the provided examples you should either have jsnoop installed as a module (global/virtualenv) or have absolute path of the _src_ folder in your _PYTHONPATH_. For example if you are in your local checkout, you can do the following.
+To use the provided examples you should either have jsnoop installed as a module or use the dev environment.
 ```bash
-export PYTHONPATH=$PYTHONPATH:$(pwd)/src
-```
-Once this is done, you can run the examples as below.
-```bash
+# fetch the virtual env
+source scripts/start-dev-env.sh
+# run the sample
 python3 examples/process.py <input-file>
 ```
