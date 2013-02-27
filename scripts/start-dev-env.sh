@@ -1,4 +1,4 @@
-#! /usr/bin/env source
+# Usage: source <script>
 # Switch to dev environment
 # Sets up the development environment if it does not exist
 
