@@ -1,7 +1,7 @@
 jsnoop
 ======
 
-A simple tool to interrogate a given archive file for its contents and embedded jars. This allows you to generate a catalog of contents and programmatically analyse this information.
+A simple tool to interrogate a given archive (jar,zip,tar etc) for its contents and embedded jars. This allows you to generate a catalog of contents and programmatically analyse this information.
 
 This project makes use of the the pyrus package. (https://github.com/abn/pyrus).
 
