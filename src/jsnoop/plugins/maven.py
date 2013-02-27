@@ -24,71 +24,31 @@
 # The code is refactored and converted for use with py3k
 # A few other changes have also been made
 
-from string import Template
 import os
 import locale
 import shutil
 import stat
 import hashlib
-from xml.etree import ElementTree
 import sys
 import re
 
-from jsnoop.common.download import download, download_string, DownloadException
-from jsnoop.common.mplogging import mplogging
+from string import Template
+from xml.etree import ElementTree
+from pyrus.mplogging import Logger
+from pyrus import AbstractMPBorg
+from multiprocessing.managers import BaseManager
+from abc import ABCMeta, abstractmethod
+from os.path import join
+from pyrus.web.download import download, download_string, DownloadException
+from pyrus.web import open_url, get_header_value
+from time import strptime, mktime
 
-logger = mplogging.get_logger('jsnoop.plugins.maven')
+logger = Logger('jsnoop.plugins.maven')
 
-class RepositoryManager(object):
-	MAVEN_LOCAL_REPOS = ('local', os.path.expanduser('~/.m2/repository'), 'local')
-	MAVEN_PUBLIC_REPOS = ('public', "http://repo1.maven.org/maven2/", 'remote')
-	def __init__(self):
-		self.repos = []
+DEFAULT_REMOTE_URI = 'http://repo1.maven.org/maven2/'
+DEFAULT_LOCAL_URI = os.path.expanduser('~/.m2/repository')
 
-	def add_repos(self, name, uri, repos_type, order=None):
-		if repos_type == 'local':
-			repo = MavenFileSystemRepos(name, uri)
-		elif repos_type == 'remote':
-			repo = MavenHttpRemoteRepos(name, uri)
-		else:
-			logger.warn('[Error] Unknown repository type.')
-			sys.exit(1)
-
-		if repo not in self.repos:
-			if order is not None:
-				self.repos.insert(order, repo)
-			else:
-				self.repos.append(repo)
-			logger.debug('[Repository] Added: %s' % repo.name)
-
-	def init_repos(self):
-		for repo in [self.MAVEN_PUBLIC_REPOS]:
-			# # create repos in order
-			name, uri, rtype = repo
-			self.add_repos(name, uri, rtype, order=len(self.repos))
-
-	def to_pom(self):
-		pom_template = Template("""
-		<repository>
-			<id>$repoId</id>
-			<name>$repoId</name>
-			<url>$url</url>
-		</repository>""")
-		reps = []
-		for repo in self.repos:
-			# ## remote only
-			if isinstance(repo, MavenHttpRemoteRepos):
-				# ## remote repository other than default
-				if repo.uri != self.MAVEN_PUBLIC_REPOS[1]:
-					content = pom_template.substitute({'repoId':repo.name,
-						'url': repo.uri})
-					reps.append(content)
-		return ''.join(reps)
-
-# # globals
-repos_manager = RepositoryManager()
-
-class MavenRepos(object):
+class MavenRepos(metaclass=ABCMeta):
 	def __init__(self, name, uri):
 		self.name = name
 		self.uri = uri
@@ -99,21 +59,26 @@ class MavenRepos(object):
 		else:
 			return False
 
+	@abstractmethod
 	def get_artifact_uri(self, artifact, ext):
 		pass
 
+	@abstractmethod
 	def download_jar(self, artifact, local_path):
 		""" download or copy file to local path, raise exception when failed """
 		pass
 
+	@abstractmethod
 	def download_pom(self, artifact):
 		""" return a content string """
 		pass
 
+	@abstractmethod
 	def last_modified(self, artifact):
 		""" return last modified timestamp """
 		pass
 
+	@abstractmethod
 	def download_check_sum(self, checksum_type, origin_file_name):
 		""" return pre calculated checksum value, only avaiable for remote repos """
 		pass
@@ -124,14 +89,14 @@ class MavenFileSystemRepos(MavenRepos):
 
 	def get_artifact_uri(self, artifact, ext):
 		maven_name = artifact.to_maven_name(ext)
-		maven_file_path = os.path.join(self.uri, maven_name)
+		maven_file_path = join(self.uri, maven_name)
 		return maven_file_path
 
 	def download_jar(self, artifact, local_path):
 		maven_file_path = self.get_artifact_uri(artifact, 'jar')
 		logger.info("[Checking] jar package from %s" % self.name)
 		if os.path.exists(maven_file_path):
-			local_jip_path = local_path + "/" + artifact.to_jip_name()
+			local_jip_path = join(local_path, artifact.to_jip_name())
 			logger.info("[Downloading] %s" % maven_file_path)
 			shutil.copy(maven_file_path, local_jip_path)
 			logger.info("[Finished] %s completed" % local_jip_path)
@@ -159,6 +124,9 @@ class MavenFileSystemRepos(MavenRepos):
 		else:
 			return None
 
+	def download_check_sum(self, checksum_type, origin_file_name):
+		pass
+
 class MavenHttpRemoteRepos(MavenRepos):
 	def __init__(self, name, uri):
 		MavenRepos.__init__(self, name, uri)
@@ -168,9 +136,8 @@ class MavenHttpRemoteRepos(MavenRepos):
 	def download_jar(self, artifact, local_path):
 		maven_path = self.get_artifact_uri(artifact, 'jar')
 		logger.info('[Downloading] jar from %s' % maven_path)
-		local_jip_path = local_path + "/" + artifact.to_jip_name()
-		local_f = open(local_jip_path, 'w')
-		download(maven_path, local_f, True)
+		local_jip_path = join(local_path, artifact.to_jip_name())
+		download(maven_path, local_jip_path, False)
 		logger.debug('[Finished] %s downloaded ' % maven_path)
 
 	def download_pom(self, artifact):
@@ -235,17 +202,16 @@ class MavenHttpRemoteRepos(MavenRepos):
 	def last_modified(self, artifact):
 		metadata_path = self.get_metadata_path(artifact)
 		try:
-			fd = urllib.request.urlopen(metadata_path)
-			if 'last-modified' in fd.headers:
-				ts = fd.headers['last-modified']
-				fd.close()
+			response = open_url(metadata_path)
+			ts = get_header_value(response, 'last-modified')
+			if ts:
 				locale.setlocale(locale.LC_TIME, 'en_US')
-				last_modified = time.strptime(ts, '%a, %d %b %Y %H:%M:%S %Z')
-				return time.mktime(last_modified)
+				last_modified = strptime(ts, '%a, %d %b %Y %H:%M:%S %Z')
+				return mktime(last_modified)
 			else:
-				fd.close()
 				return 0
-		except urllib.error.HTTPError:
+			response.close()
+		except:
 			return None
 
 	def download_check_sum(self, checksum_type, origin_file_name):
@@ -311,8 +277,8 @@ class Artifact(object):
 	def __repr__(self):
 		return self.__str__()
 
-# 	def __hash__(self):
-# 		return self.group.__hash__()*13+self.artifact.__hash__()*7+self.version.__hash__()
+	def __hash__(self):
+		return self.group.__hash__() * 13 + self.artifact.__hash__() * 7 + self.version.__hash__()
 
 	def is_snapshot(self):
 		return self.version.find('SNAPSHOT') > 0
@@ -328,7 +294,6 @@ class Artifact(object):
 		group, artifact, version = artifact_id.split(":")
 		artifact = Artifact(group, artifact, version)
 		return artifact
-
 
 class Pom(object):
 	def __init__(self, pom_string):
@@ -520,3 +485,61 @@ class Pom(object):
 			repos.append((name, uri, "remote"))
 		return repos
 
+class _RepositoryManager(AbstractMPBorg):
+	def __init__(self):
+		AbstractMPBorg.__init__(self)
+
+	def _initialize(self):
+		self.repos = self._manager.list([])
+		self.init_repos()
+
+	def add_repos(self, name, uri, repos_type, order=None):
+		if repos_type == 'local':
+			repo = MavenFileSystemRepos(name, uri)
+		elif repos_type == 'remote':
+			repo = MavenHttpRemoteRepos(name, uri)
+		else:
+			logger.warn('[Error] Unknown repository type.')
+			sys.exit(1)
+
+		if repo not in self.repos:
+			if order is not None:
+				self.repos.insert(order, repo)
+			else:
+				self.repos.append(repo)
+			logger.debug('[Repository] Added: %s' % repo.name)
+
+	def init_repos(self):
+		defaults = [
+				('local', DEFAULT_LOCAL_URI, 'local'),
+				('public', DEFAULT_REMOTE_URI, 'remote')
+			]
+		for repo in defaults:
+			# # create repos in order
+			name, uri, rtype = repo
+			self.add_repos(name, uri, rtype, order=len(self.repos))
+
+	def to_pom(self):
+		pom_template = Template("""
+		<repository>
+			<id>$repoId</id>
+			<name>$repoId</name>
+			<url>$url</url>
+		</repository>""")
+		reps = []
+		for repo in self.repos:
+			# ## remote only
+			if isinstance(repo, MavenHttpRemoteRepos):
+				# ## remote repository other than default
+				if repo.uri != DEFAULT_REMOTE_URI:
+					content = pom_template.substitute({'repoId':repo.name,
+						'url': repo.uri})
+					reps.append(content)
+		return ''.join(reps)
+
+class MavenManager(BaseManager): pass
+MavenManager.register('RepositoryManager', _RepositoryManager)
+
+# Maven Plugin's manager instance
+__maven_manager = MavenManager()
+__maven_manager.start()
