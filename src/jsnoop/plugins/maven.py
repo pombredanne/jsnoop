@@ -27,7 +27,6 @@ import os
 import locale
 import shutil
 import stat
-import hashlib
 import sys
 import re
 
@@ -78,7 +77,7 @@ class MavenRepos(metaclass=ABCMeta):
 		pass
 
 	@abstractmethod
-	def download_check_sum(self, checksum_type, origin_file_name):
+	def fetch_checksum(self, artifact, checksum_type):
 		""" return pre calculated checksum value, only avaiable for remote repos """
 		pass
 
@@ -87,7 +86,7 @@ class MavenFileSystemRepos(MavenRepos):
 		MavenRepos.__init__(self, name, uri)
 
 	def get_artifact_uri(self, artifact, ext):
-		maven_name = artifact.to_maven_name(ext)
+		maven_name = artifact.maven_name(ext)
 		maven_file_path = join(self.uri, maven_name)
 		return maven_file_path
 
@@ -95,7 +94,7 @@ class MavenFileSystemRepos(MavenRepos):
 		maven_file_path = self.get_artifact_uri(artifact, 'jar')
 		logger.info("[Checking] jar package from %s" % self.name)
 		if os.path.exists(maven_file_path):
-			local_jip_path = join(local_path, artifact.to_jip_name())
+			local_jip_path = join(local_path, artifact.maven_name())
 			logger.info("[Downloading] %s" % maven_file_path)
 			shutil.copy(maven_file_path, local_jip_path)
 			logger.info("[Finished] %s completed" % local_jip_path)
@@ -123,7 +122,7 @@ class MavenFileSystemRepos(MavenRepos):
 		else:
 			return None
 
-	def download_check_sum(self, checksum_type, origin_file_name):
+	def fetch_checksum(self, checksum_type, origin_file_name):
 		pass
 
 class MavenHttpRemoteRepos(MavenRepos):
@@ -135,7 +134,7 @@ class MavenHttpRemoteRepos(MavenRepos):
 	def download_jar(self, artifact, local_path):
 		maven_path = self.get_artifact_uri(artifact, 'jar')
 		logger.info('[Downloading] jar from %s' % maven_path)
-		local_jip_path = join(local_path, artifact.to_jip_name())
+		local_jip_path = join(local_path, artifact.maven_name())
 		download(maven_path, local_jip_path, False)
 		logger.debug('[Finished] %s downloaded ' % maven_path)
 
@@ -169,7 +168,7 @@ class MavenHttpRemoteRepos(MavenRepos):
 
 	def get_artifact_uri(self, artifact, ext):
 		if not artifact.is_snapshot():
-			maven_name = artifact.to_maven_name(ext)
+			maven_name = artifact.maven_name(ext)
 		else:
 			maven_name = artifact.to_maven_snapshot_name(ext)
 		if self.uri.endswith('/'):
@@ -180,14 +179,11 @@ class MavenHttpRemoteRepos(MavenRepos):
 
 	def get_snapshot_info(self, artifact):
 		metadata_path = self.get_metadata_path(artifact)
-
 		try:
 			data = download_string(metadata_path)
-
 			eletree = ElementTree.fromstring(data)
 			timestamp = eletree.findtext('versioning/snapshot/timestamp')
 			build_number = eletree.findtext('versioning/snapshot/buildNumber')
-
 			return (timestamp, build_number)
 		except DownloadException:
 			return None
@@ -213,30 +209,17 @@ class MavenHttpRemoteRepos(MavenRepos):
 		except:
 			return None
 
-	def download_check_sum(self, checksum_type, origin_file_name):
-		""" return pre calculated checksum value, only avaiable for remote repos """
-		checksum_url = origin_file_name + "." + checksum_type
+	def fetch_checksum(self, artifact, checksum_type='sha1'):
+		""" return pre calculated checksum value, only avaiable for remote repos
+		"""
+		assert checksum_type in ['sha1', 'md5']
+		checksum_url = '%s/%s.%s' % (self.uri.strip('/'), artifact.maven_name(),
+									checksum_type)
 		try:
 			data = download_string(checksum_url)
 			return data
 		except DownloadException:
 			return None
-
-	def checksum(self, filepath, checksum_type):
-		if checksum_type == 'md5':
-			hasher = hashlib.md5()
-		elif checksum_type == 'sha1':
-			hasher = hashlib.sha1()
-
-		buf_size = 1024 * 8
-		file_to_check = open(filepath, 'r')
-		buf = file_to_check.read(buf_size)
-		while len(buf) > 0:
-			hasher.update(buf)
-			buf = file_to_check.read(buf_size)
-
-		file_to_check.close()
-		return hasher.hexdigest()
 
 class Artifact(object):
 	def __init__(self, group, artifact, version=None):
@@ -248,15 +231,10 @@ class Artifact(object):
 		self.exclusions = []
 		self.repos = None
 
-	def to_jip_name(self, pattern="$artifact-$version.$ext", ext="jar"):
-		template = Template(pattern)
-		filename = template.substitute({'group':self.group, 'artifact':self.artifact,
-				'version': self.version, 'ext': ext})
-		return filename
-
-	def to_maven_name(self, ext):
+	def maven_name(self, ext='jar'):
 		group = self.group.replace('.', '/')
-		return "%s/%s/%s/%s-%s.%s" % (group, self.artifact, self.version, self.artifact, self.version, ext)
+		return '%s/%s/%s/%s-%s.%s' % (group, self.artifact, self.version,
+									self.artifact, self.version, ext)
 
 	def to_maven_snapshot_name(self, ext):
 		group = self.group.replace('.', '/')
