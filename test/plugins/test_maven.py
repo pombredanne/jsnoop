@@ -1,28 +1,33 @@
+from unittest import TestCase, main
 from jsnoop.plugins import maven
-from pyrus.mplogging import Logger, DEBUG
+from pyrus.mplogging import Logger, DEBUG, INFO
 
-logger = Logger('test_maven', DEBUG)
-maven.logger.set_log_level(DEBUG)
+class TestMavenPlugin(TestCase):
+	def setUp(self):
+		maven.logger.set_log_level(DEBUG)
+		self.remote = maven.MavenHttpRemoteRepos('public',
+												maven.DEFAULT_REMOTE_URI)
+		self.artifact = maven.Artifact('ant', 'ant', '1.5')
 
-def check_poms(artifact):
-	logger.debug('Testing local repo pom check')
-	local = maven.MavenFileSystemRepos('local', maven.DEFAULT_LOCAL_URI)
-	local.download_pom(artifact)
-	logger.debug('Testing remote repo pom check')
-	remote = maven.MavenHttpRemoteRepos('public', maven.DEFAULT_REMOTE_URI)
-	remote.download_pom(artifact)
+	def test_artifact_name(self):
+		self.assertEqual(self.artifact.__str__(), 'ant:ant:1.5')
 
-def test():
-	artifact = maven.Artifact('ant', 'ant', '1.5')
-	try:
-		logger.debug('Testing artifact name generation')
-		assert artifact.__str__() == 'ant:ant:1.5'
-		logger.debug('Testing artifact path generation')
-		assert artifact.to_maven_name('jar') == 'ant/ant/1.5/ant-1.5.jar'
-	except:
-		print('Artifact test failed')
-	# Watch logs
-	check_poms(artifact)
+	def test_artifact_path(self):
+		self.assertEqual(self.artifact.maven_name(), 'ant/ant/1.5/ant-1.5.jar')
+
+	def test_sha1(self):
+		expected = 'dcab88fc2a043c2479a6de676a2f8179e9ea2167'
+		received = self.remote.fetch_checksum(self.artifact)
+		self.assertEqual(received, expected)
+
+	def test_md5(self):
+		expected = '902a360ecad98a34b59863c1e65bcf71'
+		received = self.remote.fetch_checksum(self.artifact, 'md5')
+		self.assertEqual(received, expected)
+
+	def tearDown(self):
+		TestCase.tearDown(self)
+		maven.logger.set_log_level(INFO)
 
 if __name__ == '__main__':
-	test()
+	main()
