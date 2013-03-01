@@ -122,8 +122,19 @@ class MavenFileSystemRepos(MavenRepos):
 		else:
 			return None
 
-	def fetch_checksum(self, checksum_type, origin_file_name):
-		pass
+	def fetch_checksum(self, artifact, checksum_type='sha1'):
+		""" return pre calculated checksum value, for local repos, we only
+		support sha1
+		"""
+		assert checksum_type in ['sha1']
+		checksum_filename = '%s.%s' % (artifact.maven_name(), checksum_type)
+		checksum_url = join(self.uri, checksum_filename)
+		checksum = None
+		try:
+			with open(checksum_url, 'r') as checksum_file:
+				checksum = ''.join(checksum_file.readlines()).strip()
+		finally:
+			return checksum
 
 class MavenHttpRemoteRepos(MavenRepos):
 	def __init__(self, name, uri):
